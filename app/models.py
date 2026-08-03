@@ -1,6 +1,6 @@
 ﻿from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StateRule(BaseModel):
@@ -44,3 +44,7 @@ class DashboardPayload(BaseModel):
     generated_at: datetime
     sources: dict[str, SourceStatus]
     decision: Decision | None = None
+    market: dict[str, dict[str, object]] = Field(default_factory=dict)
+    events: list[MacroEvent] = Field(default_factory=list)
+    backtest: dict[str, object] | None = None
+
