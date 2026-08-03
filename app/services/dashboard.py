@@ -21,6 +21,8 @@ def build_dashboard_payload(
         if resolved_market is None:
             resolved_market = previous.market
             _mark_failed_sources_stale(resolved_sources)
+        else:
+            _reuse_failed_market_cards(resolved_market, previous.market, resolved_sources)
         if resolved_events is None:
             resolved_events = previous.events
         if resolved_backtest is None:
@@ -33,6 +35,22 @@ def build_dashboard_payload(
         events=resolved_events or [],
         backtest=resolved_backtest,
     )
+
+
+
+
+def _reuse_failed_market_cards(
+    market: dict[str, dict[str, object]],
+    previous_market: dict[str, dict[str, object]],
+    sources: dict[str, SourceStatus],
+) -> None:
+    for source, market_key in {"yahoo_ixic": "ixic"}.items():
+        status = sources.get(source)
+        if status is not None and not status.available and market_key not in market:
+            previous_card = previous_market.get(market_key)
+            if previous_card is not None:
+                market[market_key] = previous_card
+                sources[source] = status.model_copy(update={"stale": True})
 
 
 def _mark_failed_sources_stale(sources: dict[str, SourceStatus]) -> None:

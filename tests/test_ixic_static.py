@@ -13,3 +13,4 @@ def test_static_page_has_nasdaq_composite_chart_contract() -> None:
     assert "downColor:'#F0656B'" in script
     assert "change.className=ixic?.daily_change_points>=0?'positive':'negative'" in script
     assert "setOhlc(ixicCandles.at(-1))" in script
+    assert "p.sources?.yahoo_ixic?.available?p.market?.ixic:null" in script
