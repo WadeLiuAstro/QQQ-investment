@@ -23,7 +23,7 @@
 - Modify: `static/assets/style.css`
 - Test: `tests/test_signal_explanation_static.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 def test_dashboard_explains_threshold_results_and_uses_inline_sector_cards() -> None:
@@ -35,12 +35,12 @@ def test_dashboard_explains_threshold_results_and_uses_inline_sector_cards() -> 
     assert ".sector{display:flex" in styles
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `.\\.venv\\Scripts\\python.exe -m pytest tests/test_signal_explanation_static.py -q`
 Expected: FAIL because the formatter and inline sector styles do not exist.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```javascript
 function formatSignalBreakdown(indicators, decision) { /* render current values and fixed rule thresholds */ }
@@ -48,12 +48,12 @@ function formatSignalBreakdown(indicators, decision) { /* render current values 
 
 Render two-column desktop sector cards and one-column mobile cards using `sector-name` and `sector-price` spans.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `.\\.venv\\Scripts\\python.exe -m pytest -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add static/assets/app.js static/assets/style.css tests/test_signal_explanation_static.py
