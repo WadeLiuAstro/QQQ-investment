@@ -1,4 +1,4 @@
-from datetime import datetime
+﻿from datetime import datetime
 
 from pydantic import BaseModel
 
@@ -22,6 +22,12 @@ class SourceStatus(BaseModel):
     stale: bool = False
     message: str | None = None
 
+
+class MacroEvent(BaseModel):
+    kind: str
+    title: str
+    event_at: datetime
+    source: str
 
 class Decision(BaseModel):
     state: str
