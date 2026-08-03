@@ -12,6 +12,9 @@ class PriceBar:
     day: date
     close: float
     volume: int
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
 
 
 @dataclass(frozen=True)
@@ -35,7 +38,7 @@ def fetch_daily_bars(
         if getattr(frame.columns, "nlevels", 1) > 1:
             frame = frame.xs(symbol, axis=1, level=-1)
         bars = [
-            PriceBar(day=index.date(), close=float(row["Close"]), volume=int(row["Volume"]))
+            PriceBar(day=index.date(), close=float(row["Close"]), volume=int(row["Volume"]), open=float(row["Open"]) if "Open" in row else None, high=float(row["High"]) if "High" in row else None, low=float(row["Low"]) if "Low" in row else None)
             for index, row in frame.iterrows()
         ]
         return bars, SourceStatus(source="yahoo", available=True, checked_at=checked_at)

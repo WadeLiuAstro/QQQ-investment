@@ -24,6 +24,7 @@ SYMBOLS = {
     "smh": "SMH",
     "xle": "XLE",
     "xlf": "XLF",
+    "ixic": "^IXIC",
     "vix": "^VIX",
     "treasury_10y": "^TNX",
     "dollar_index": "DX-Y.NYB",
@@ -123,10 +124,8 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
 def _market_card(symbol: str, bars: list[object]) -> dict[str, object]:
     latest = bars[-1]
     previous = bars[-2] if len(bars) > 1 else None
-    daily_change = (
-        round((latest.close / previous.close - 1.0) * 100, 2) if previous else None
-    )
-    return {
+    daily_change = round((latest.close / previous.close - 1.0) * 100, 2) if previous else None
+    card = {
         "symbol": symbol,
         "price": latest.close,
         "official_close": latest.close,
@@ -134,6 +133,14 @@ def _market_card(symbol: str, bars: list[object]) -> dict[str, object]:
         "daily_change_pct": daily_change,
         "five_day_closes": [bar.close for bar in bars[-5:]],
     }
+    if symbol == "^IXIC":
+        card["daily_change_points"] = round(latest.close - previous.close, 2) if previous else None
+        card["candles"] = [
+            {"time": bar.day.isoformat(), "open": bar.open, "high": bar.high, "low": bar.low, "close": bar.close}
+            for bar in bars
+            if None not in (bar.open, bar.high, bar.low)
+        ]
+    return card
 
 def create_refresh_scheduler(
     repository: SnapshotRepository, export_path: Path
