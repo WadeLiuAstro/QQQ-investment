@@ -22,6 +22,11 @@ def create_app(
     @app.get("/api/dashboard", response_model=DashboardPayload)
     def get_dashboard() -> DashboardPayload:
         payload = active_repository.load_latest_payload()
+        if payload is None and active_export_path.exists():
+            payload = DashboardPayload.model_validate_json(
+                active_export_path.read_text(encoding="utf-8")
+            )
+            active_repository.save_payload(payload)
         if payload is None:
             raise HTTPException(status_code=503, detail="No successful dashboard snapshot exists")
         return payload
