@@ -1,0 +1,8 @@
+.superpowers/
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+data/*.sqlite3
+data/*.json
+static/data/*.json
