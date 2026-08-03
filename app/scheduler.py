@@ -1,9 +1,10 @@
-from dataclasses import asdict, replace
+﻿from dataclasses import asdict, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
 import httpx
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.config import load_rule_config
 from app.db import SnapshotRepository
@@ -133,3 +134,18 @@ def _market_card(symbol: str, bars: list[object]) -> dict[str, object]:
         "daily_change_pct": daily_change,
         "five_day_closes": [bar.close for bar in bars[-5:]],
     }
+
+def create_refresh_scheduler(
+    repository: SnapshotRepository, export_path: Path
+) -> BackgroundScheduler:
+    scheduler = BackgroundScheduler(timezone="America/New_York")
+    scheduler.add_job(
+        refresh_once,
+        trigger="interval",
+        minutes=15,
+        args=[repository, export_path],
+        id="dashboard_refresh",
+        replace_existing=True,
+    )
+    scheduler.start()
+    return scheduler

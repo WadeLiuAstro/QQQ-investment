@@ -1,4 +1,5 @@
 ﻿from collections.abc import Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -7,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import PROJECT_ROOT
 from app.db import SnapshotRepository
 from app.models import DashboardPayload
-from app.scheduler import refresh_once
+from app.scheduler import create_refresh_scheduler, refresh_once
 
 
 def create_app(
@@ -17,7 +18,16 @@ def create_app(
 ) -> FastAPI:
     active_repository = repository or SnapshotRepository(PROJECT_ROOT / "data" / "dashboard.sqlite")
     active_export_path = export_path or PROJECT_ROOT / "static" / "data" / "dashboard.json"
-    app = FastAPI(title="QQQ 美股投研仪表盘")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        scheduler = create_refresh_scheduler(active_repository, active_export_path)
+        app.state.refresh_scheduler = scheduler
+        try:
+            yield
+        finally:
+            scheduler.shutdown(wait=False)
+
+    app = FastAPI(title="QQQ 美股投研仪表盘", lifespan=lifespan)
 
     @app.get("/api/dashboard", response_model=DashboardPayload)
     def get_dashboard() -> DashboardPayload:
