@@ -1,4 +1,4 @@
-import sqlite3
+﻿import sqlite3
 from pathlib import Path
 
 from app.models import DashboardPayload, SourceStatus
@@ -6,7 +6,8 @@ from app.models import DashboardPayload, SourceStatus
 
 class SnapshotRepository:
     def __init__(self, db_path: Path) -> None:
-        self._connection = sqlite3.connect(db_path)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._connection = sqlite3.connect(db_path, check_same_thread=False)
         self._connection.execute(
             """
             CREATE TABLE IF NOT EXISTS payload_snapshots (
