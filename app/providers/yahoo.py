@@ -14,6 +14,14 @@ class PriceBar:
     volume: int
 
 
+@dataclass(frozen=True)
+class Quote:
+    symbol: str
+    price: float
+    previous_close: float
+    is_intraday_estimate: bool
+
+
 def fetch_daily_bars(
     symbol: str,
     period: str,
@@ -36,6 +44,32 @@ def fetch_daily_bars(
             None,
             SourceStatus(
                 source="yahoo",
+                available=False,
+                checked_at=checked_at,
+                message=str(error),
+            ),
+        )
+
+def fetch_quote(
+    symbol: str,
+    ticker_factory: Callable[[str], object] = yf.Ticker,
+) -> tuple[Quote | None, SourceStatus]:
+    checked_at = datetime.now(UTC)
+    try:
+        ticker = ticker_factory(symbol)
+        fast_info = ticker.fast_info
+        quote = Quote(
+            symbol=symbol,
+            price=float(fast_info["last_price"]),
+            previous_close=float(fast_info["previous_close"]),
+            is_intraday_estimate=True,
+        )
+        return quote, SourceStatus(source="yahoo_quote", available=True, checked_at=checked_at)
+    except (AttributeError, KeyError, TypeError, ValueError, RuntimeError) as error:
+        return (
+            None,
+            SourceStatus(
+                source="yahoo_quote",
                 available=False,
                 checked_at=checked_at,
                 message=str(error),
