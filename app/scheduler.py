@@ -20,6 +20,7 @@ from app.services.explanation import build_threshold_matrix
 from app.services.export import write_dashboard_json
 from app.services.indicators import calculate_indicators
 from app.services.session import NY_TZ, is_regular_session_open, session_elapsed_fraction
+from app.services.state_history import build_state_history
 
 SYMBOLS = {
     "qqq": "QQQ",
@@ -42,6 +43,12 @@ def refresh_once(
     previous = repository.load_latest_payload()
     payload = (collect or collect_dashboard_payload)(previous)
     repository.save_payload(payload)
+    repository.record_state(payload)
+    if payload.decision is not None:
+        since = (datetime.now(UTC) - timedelta(days=90)).isoformat()
+        history = build_state_history(repository.load_state_history(since_iso=since))
+        payload = payload.model_copy(update={"state_history": history.model_dump()})
+        repository.save_payload(payload)
     for status in payload.sources.values():
         repository.record_source_status(status)
     write_dashboard_json(payload, export_path)
