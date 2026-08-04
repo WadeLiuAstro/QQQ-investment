@@ -21,7 +21,13 @@ from app.services.decision import evaluate_decision
 from app.services.explanation import build_threshold_matrix
 from app.services.export import write_dashboard_json
 from app.services.indicators import calculate_indicators
-from app.services.session import NY_TZ, is_regular_session_open, session_elapsed_fraction
+from app.services.session import (
+    NY_TZ,
+    expected_bar_date,
+    is_regular_session_open,
+    session_elapsed_fraction,
+    trading_day_lag,
+)
 from app.services.state_history import build_state_history
 
 SYMBOLS = {
@@ -73,7 +79,9 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
         bars, status = fetch_daily_bars(symbol, "1y")
         sources[f"yahoo_{key}"] = status.model_copy(update={"source": f"yahoo_{key}"})
         if bars:
-            market[key] = _market_card(symbol, bars)
+            market[key] = _market_card(
+                symbol, bars, expected=expected_bar_date(datetime.now(NY_TZ))
+            )
             if key == "qqq":
                 qqq_bars = bars
             if key == "qqqe":
@@ -156,7 +164,9 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
     )
 
 
-def _market_card(symbol: str, bars: list[object]) -> dict[str, object]:
+def _market_card(
+    symbol: str, bars: list[object], expected: date | None = None
+) -> dict[str, object]:
     latest = bars[-1]
     previous = bars[-2] if len(bars) > 1 else None
     daily_change = round((latest.close / previous.close - 1.0) * 100, 2) if previous else None
@@ -167,6 +177,7 @@ def _market_card(symbol: str, bars: list[object]) -> dict[str, object]:
         "official_close_day": latest.day.isoformat(),
         "daily_change_pct": daily_change,
         "five_day_closes": [bar.close for bar in bars[-5:]],
+        "stale_lag": trading_day_lag(latest.day, expected) if expected else None,
     }
     if symbol == "^IXIC":
         card["daily_change_points"] = round(latest.close - previous.close, 2) if previous else None

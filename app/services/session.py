@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 NY_TZ = ZoneInfo("America/New_York")
@@ -41,3 +41,33 @@ def session_elapsed_fraction(now: datetime | None = None) -> float | None:
         return None
     elapsed = (current.hour * 60 + current.minute) - (SESSION_START.hour * 60 + SESSION_START.minute)
     return elapsed / SESSION_MINUTES
+
+
+def latest_trading_day(today: date) -> date:
+    """today 之前（含当天）最近的一个常规交易日（跳过周末，节假日不识别）。"""
+    candidate = today
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate
+
+
+def trading_day_lag(latest: date, today: date) -> int:
+    """最新数据日期到最近交易日的滞后交易日数（0 = 已是最新；周末不计）。"""
+    target = latest_trading_day(today)
+    if latest >= target:
+        return 0
+    lag = 0
+    cursor = latest + timedelta(days=1)
+    while cursor <= target:
+        if cursor.weekday() < 5:
+            lag += 1
+        cursor += timedelta(days=1)
+    return lag
+
+
+def expected_bar_date(now: datetime) -> date:
+    """最近一个已收盘交易日的日期（16:00 后当天算已收盘；盘前/周末回退）。"""
+    local = _to_new_york(now)
+    if local.time() >= SESSION_END:
+        return latest_trading_day(local.date())
+    return latest_trading_day(local.date() - timedelta(days=1))

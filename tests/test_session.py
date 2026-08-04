@@ -1,10 +1,16 @@
-from datetime import datetime
+from datetime import datetime, date
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from app.providers.yahoo import fetch_quote
-from app.services.session import is_regular_session_open, session_elapsed_fraction
+from app.services.session import (
+    expected_bar_date,
+    is_regular_session_open,
+    latest_trading_day,
+    session_elapsed_fraction,
+    trading_day_lag,
+)
 
 NY = ZoneInfo("America/New_York")
 
@@ -61,3 +67,31 @@ def test_fetch_quote_default_flag_computed_from_session(monkeypatch: pytest.Monk
     quote, _ = fetch_quote("QQQ", ticker_factory=lambda _: Ticker())
     assert quote.is_intraday_estimate is False
     assert calls == [True]
+
+
+def test_latest_trading_day_skips_weekends() -> None:
+    assert latest_trading_day(date(2026, 8, 5)) == date(2026, 8, 5)  # Wednesday
+    assert latest_trading_day(date(2026, 8, 8)) == date(2026, 8, 7)  # Saturday -> Friday
+    assert latest_trading_day(date(2026, 8, 9)) == date(2026, 8, 7)  # Sunday -> Friday
+
+
+def test_trading_day_lag_counts_weekdays_only() -> None:
+    # 周一收盘价数据在周三检查：滞后 2 个交易日（周二、周三）
+    assert trading_day_lag(date(2026, 8, 3), date(2026, 8, 5)) == 2
+    # 同日：滞后 0
+    assert trading_day_lag(date(2026, 8, 3), date(2026, 8, 3)) == 0
+    # 周五数据在周一检查：滞后 1 个交易日（周一）
+    assert trading_day_lag(date(2026, 8, 7), date(2026, 8, 10)) == 1
+    # 未来日期（不应出现）：滞后 0
+    assert trading_day_lag(date(2026, 8, 10), date(2026, 8, 7)) == 0
+
+
+def test_expected_bar_date_uses_last_closed_trading_day() -> None:
+    # 周一盘前 02:00：最近已收盘交易日是上周五
+    assert expected_bar_date(datetime(2026, 8, 3, 2, 0, tzinfo=NY)) == date(2026, 7, 31)
+    # 周一 17:00（已收盘）：当天算最近已收盘交易日
+    assert expected_bar_date(datetime(2026, 8, 3, 17, 0, tzinfo=NY)) == date(2026, 8, 3)
+    # 周六：回退到周五
+    assert expected_bar_date(datetime(2026, 8, 8, 12, 0, tzinfo=NY)) == date(2026, 8, 7)
+    # 盘中 13:00：当天尚未收盘，最近已收盘是前一天
+    assert expected_bar_date(datetime(2026, 8, 4, 13, 0, tzinfo=NY)) == date(2026, 8, 3)
