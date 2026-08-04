@@ -1,4 +1,5 @@
-﻿from datetime import datetime
+from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -40,6 +41,77 @@ class Decision(BaseModel):
     actionability: str
 
 
+class ThresholdDistanceRow(BaseModel):
+    rule: str
+    label: str
+    current: float | None = None
+    condition: str
+    distance: float | None = None
+    unit: str
+    direction: str | None = None
+    available: bool = True
+    note: str | None = None
+
+
+class WatchCondition(BaseModel):
+    label: str
+    condition: str
+    met: bool = False
+    note: str | None = None
+
+
+class ActionCard(BaseModel):
+    extra_top_up_ready: bool
+    extra_top_up_reason: str
+    watch_conditions: list[WatchCondition]
+    data_completeness: dict[str, object]
+
+
+class StateRecord(BaseModel):
+    generated_at: datetime
+    state: str
+    allocation_min: int
+    allocation_max: int
+    dca_multiplier: float
+    reasons: list[str]
+
+
+class StateSwitch(BaseModel):
+    observed_at: datetime
+    state: str
+    allocation_min: int
+    allocation_max: int
+    dca_multiplier: float
+    reasons: list[str]
+
+
+class StateHistory(BaseModel):
+    switches: list[StateSwitch]
+    current_duration_ticks: int
+
+
+class Alert(BaseModel):
+    key: str
+    kind: str
+    title: str
+    detail: str
+
+
+class Breadth(BaseModel):
+    qqqe_price: float | None = None
+    relative_strength_5d: float | None = None
+    relative_strength_20d: float | None = None
+    qqq_return_20d: float | None = None
+    label: str | None = None
+    available: bool = True
+    note: str | None = None
+
+
+class AttributionRequest(BaseModel):
+    classification: Literal["liquidity_panic", "structural", "watch"]
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class DashboardPayload(BaseModel):
     generated_at: datetime
     sources: dict[str, SourceStatus]
@@ -47,4 +119,7 @@ class DashboardPayload(BaseModel):
     market: dict[str, dict[str, object]] = Field(default_factory=dict)
     events: list[MacroEvent] = Field(default_factory=list)
     backtest: dict[str, object] | None = None
+    action_card: dict[str, object] | None = None
+    state_history: dict[str, object] | None = None
+    alerts: list[dict[str, object]] | None = None
 

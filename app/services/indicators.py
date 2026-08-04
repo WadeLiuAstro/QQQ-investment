@@ -1,4 +1,4 @@
-﻿from dataclasses import dataclass
+from dataclasses import dataclass
 from itertools import pairwise
 from typing import Sequence
 
@@ -16,10 +16,13 @@ class IndicatorSet:
     rsi_is_estimated: bool
     vix: float | None = None
     fear_greed: float | None = None
+    volume_is_estimated: bool = False
 
 
 def calculate_indicators(
-    bars: Sequence[PriceBar], intraday_price: float | None = None
+    bars: Sequence[PriceBar],
+    intraday_price: float | None = None,
+    volume_elapsed_fraction: float | None = None,
 ) -> IndicatorSet:
     closes = [bar.close for bar in bars]
     current_price = intraday_price if intraday_price is not None else (closes[-1] if closes else None)
@@ -32,8 +35,11 @@ def calculate_indicators(
         else None
     )
     prior_volumes = [bar.volume for bar in bars[-21:-1]]
+    last_volume = bars[-1].volume if bars else None
+    if volume_elapsed_fraction is not None and last_volume is not None:
+        last_volume = last_volume / max(volume_elapsed_fraction, 0.05)
     volume_ratio = (
-        round(bars[-1].volume / _mean(prior_volumes), 2) if len(prior_volumes) == 20 else None
+        round(last_volume / _mean(prior_volumes), 2) if len(prior_volumes) == 20 else None
     )
     return IndicatorSet(
         current_price=current_price,
@@ -43,6 +49,7 @@ def calculate_indicators(
         drawdown_pct=drawdown_pct,
         volume_ratio=volume_ratio,
         rsi_is_estimated=intraday_price is not None,
+        volume_is_estimated=volume_elapsed_fraction is not None,
     )
 
 

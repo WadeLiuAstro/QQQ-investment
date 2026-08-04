@@ -5,7 +5,7 @@ def test_yahoo_quote_maps_fast_info() -> None:
     class Ticker:
         fast_info = {"last_price": 510.25, "previous_close": 505.0}
 
-    quote, status = fetch_quote("QQQ", ticker_factory=lambda _: Ticker())
+    quote, status = fetch_quote("QQQ", ticker_factory=lambda _: Ticker(), market_open=True)
 
     assert status.available is True
     assert quote.symbol == "QQQ"
@@ -18,7 +18,7 @@ def test_yahoo_quote_failure_returns_unavailable_status() -> None:
     def failing_factory(_: str) -> object:
         raise RuntimeError("quote provider unavailable")
 
-    quote, status = fetch_quote("QQQ", ticker_factory=failing_factory)
+    quote, status = fetch_quote("QQQ", ticker_factory=failing_factory, sleeper=lambda _s: None)
 
     assert quote is None
     assert status.available is False

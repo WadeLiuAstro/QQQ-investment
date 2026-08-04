@@ -19,3 +19,24 @@ def test_ixic_market_card_exports_candles_and_daily_change() -> None:
         {"time": "2026-08-02", "open": 99.0, "high": 101.0, "low": 98.0, "close": 100.0},
         {"time": "2026-08-03", "open": 100.0, "high": 105.0, "low": 99.0, "close": 102.0},
     ]
+
+
+def test_ixic_market_card_reports_stale_lag() -> None:
+    # 数据停留在周一，而最近已收盘交易日是周三 → 滞后 2 个交易日
+    card = _market_card(
+        "^IXIC",
+        [
+            PriceBar(date(2026, 8, 3), 102.0, 1_000, 100.0, 105.0, 99.0),
+        ],
+        expected=date(2026, 8, 5),
+    )
+
+    assert card["stale_lag"] == 2
+
+    # 数据恰好覆盖最近已收盘交易日 → 滞后 0
+    fresh = _market_card(
+        "^IXIC",
+        [PriceBar(date(2026, 8, 3), 102.0, 1_000, 100.0, 105.0, 99.0)],
+        expected=date(2026, 8, 3),
+    )
+    assert fresh["stale_lag"] == 0

@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -7,10 +7,18 @@
 <body>
   <header><p class="eyebrow">NORTHSTAR / US EQUITY RESEARCH</p><h1>QQQ <em>投研终端</em></h1><button id="refresh-button">刷新数据</button></header>
   <main>
-    <section id="signal-band" class="signal-band"><span>市场状态</span><strong id="state">等待数据</strong><span id="allocation">--</span><span id="dca">定投倍率 --</span></section>
-    <section id="nasdaq-composite" class="card ixic-card"><div class="ixic-head"><div><p class="label">纳斯达克综合指数 / ^IXIC</p><h2 id="ixic-price">--</h2><p id="ixic-change">数据暂不可用</p></div><div class="ranges"><button data-range="1m">1月</button><button data-range="3m" class="active">3月</button><button data-range="6m">6月</button><button data-range="1y">1年</button></div></div><div id="ixic-ohlc" class="ohlc">OHLC --</div><div id="ixic-chart"></div><p id="ixic-unavailable" class="bad"></p></section>    <section class="grid hero"><article id="qqq-core" class="card qqq"><p class="label">NASDAQ-100 / QQQ</p><h2 id="qqq-price">--</h2><p id="qqq-change">等待最新快照</p><div id="rsi" class="metrics"></div></article><article id="macro-grid" class="card"><p class="label">宏观流动性</p><div id="macro-values" class="metrics"></div></article></section>
+    <section id="signal-band" class="signal-band"><span>市场状态</span><strong id="state">等待数据</strong><span id="allocation">--</span><span id="dca">定投倍率 --</span><span id="extra-topup" class="chip"></span><span id="completeness" class="chip"></span></section>
+    <div id="alert-banner" class="alert-banner"></div>
+    <div id="watch-conditions"></div>
+    <section id="nasdaq-composite" class="card ixic-card"><div class="ixic-head"><div><p class="label">纳斯达克综合指数 / ^IXIC</p><h2 id="ixic-price">--</h2><p id="ixic-change">数据暂不可用</p></div><div class="ranges"><button data-range="1m">1月</button><button data-range="3m" class="active">3月</button><button data-range="6m">6月</button><button data-range="1y">1年</button><span id="ixic-granularity" class="granularity">日K · 每根=1 交易日</span></div></div><div id="ixic-ohlc" class="ohlc">OHLC --</div><div id="ixic-chart"></div><p id="ixic-unavailable" class="bad"></p></section>    <section class="grid hero"><article id="qqq-core" class="card qqq"><p class="label">NASDAQ-100 / QQQ</p><h2 id="qqq-price">--</h2><p id="qqq-change">等待最新快照</p><div id="rsi" class="metrics"></div></article><article id="macro-grid" class="card"><p class="label">宏观流动性</p><div id="macro-values" class="metrics"></div></article></section>
     <section class="grid"><article class="card"><p class="label">未来七日事件</p><div id="event-list" class="list"></div></article><article id="signal-reasons" class="card"><p class="label">信号拆解</p><div id="reasons" class="list"></div></article></section>
     <section class="grid"><article class="card"><p class="label">板块佐证</p><div id="sector-grid" class="sectors"></div></article><article id="backtest-summary" class="card"><p class="label">回测摘要</p><div id="backtest" class="metrics"></div></article></section>
+    <section class="card"><p class="label">状态历史（最近 90 天）</p><div id="state-history"></div></section>
+    <section class="card"><p class="label">市场宽度佐证（QQQE 相对 QQQ）</p><div id="breadth-card"></div></section>
+<section class="grid"><article class="card"><p class="label">体系趋势层（MA200 · 参考层）</p><div id="trend-card"></div></article><article class="card"><p class="label">结构性风险评分（参考层）</p><div id="structural-card"></div></article></section>
+<section class="card"><p class="label">大跌归因（机器举证 · 人拍板 · 超时减半）</p><div id="attribution-card"></div></section>
+<section class="card"><p class="label">决策日志（最近 50 条）</p><div id="decision-log-card"></div></section>
+    <section id="scenario-panel" class="card"><p class="label">情景推演（如果……会怎样）</p><div class="sim-inputs"><label>QQQ 价格<input id="sim-price" type="number" step="0.01"></label><label>RSI(2)<input id="sim-rsi2" type="number" step="0.01"></label><label>RSI(6)<input id="sim-rsi6" type="number" step="0.01"></label><label>回撤 %<input id="sim-drawdown" type="number" step="0.01"></label><label>VIX<input id="sim-vix" type="number" step="0.01"></label><label>成交量比<input id="sim-volume" type="number" step="0.01"></label></div><div class="sim-actions"><button id="simulate-button">模拟</button><button id="sim-reset-button">重置</button></div><div id="scenario-result" class="sim-result"></div></section>
     <section id="data-status" class="status"></section>
   </main>
   <footer>仅供个人研究，不构成投资建议。日线指标在收盘后为正式值；盘中数据为估算。</footer>

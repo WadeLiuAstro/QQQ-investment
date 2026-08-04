@@ -20,6 +20,8 @@ def test_refresh_once_exports_and_persists_collected_payload(tmp_path: Path) -> 
 
     payload = refresh_once(repository, export_path, collect=lambda _: expected)
 
-    assert payload == expected
-    assert repository.load_latest_payload() == expected
-    assert DashboardPayload.model_validate_json(export_path.read_text()) == expected
+    normalized = expected.model_copy(update={"alerts": []})
+    assert payload == normalized
+    assert payload.alerts == []
+    assert repository.load_latest_payload() == normalized
+    assert DashboardPayload.model_validate_json(export_path.read_text()) == normalized
