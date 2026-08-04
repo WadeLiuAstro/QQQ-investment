@@ -66,6 +66,29 @@ class ActionCard(BaseModel):
     data_completeness: dict[str, object]
 
 
+class StateRecord(BaseModel):
+    generated_at: datetime
+    state: str
+    allocation_min: int
+    allocation_max: int
+    dca_multiplier: float
+    reasons: list[str]
+
+
+class StateSwitch(BaseModel):
+    observed_at: datetime
+    state: str
+    allocation_min: int
+    allocation_max: int
+    dca_multiplier: float
+    reasons: list[str]
+
+
+class StateHistory(BaseModel):
+    switches: list[StateSwitch]
+    current_duration_ticks: int
+
+
 class DashboardPayload(BaseModel):
     generated_at: datetime
     sources: dict[str, SourceStatus]
@@ -74,4 +97,5 @@ class DashboardPayload(BaseModel):
     events: list[MacroEvent] = Field(default_factory=list)
     backtest: dict[str, object] | None = None
     action_card: dict[str, object] | None = None
+    state_history: dict[str, object] | None = None
 
