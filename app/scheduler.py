@@ -14,6 +14,7 @@ from app.providers.macro_calendar import load_macro_events
 from app.providers.yahoo import fetch_daily_bars, fetch_quote
 from app.services.backtest import run_backtest
 from app.services.action_card import build_action_card
+from app.services.alerts import build_alerts
 from app.services.dashboard import build_dashboard_payload
 from app.services.decision import evaluate_decision
 from app.services.explanation import build_threshold_matrix
@@ -44,11 +45,13 @@ def refresh_once(
     payload = (collect or collect_dashboard_payload)(previous)
     repository.save_payload(payload)
     repository.record_state(payload)
+    alerts = [alert.model_dump() for alert in build_alerts(previous, payload)]
+    payload = payload.model_copy(update={"alerts": alerts})
     if payload.decision is not None:
         since = (datetime.now(UTC) - timedelta(days=90)).isoformat()
         history = build_state_history(repository.load_state_history(since_iso=since))
         payload = payload.model_copy(update={"state_history": history.model_dump()})
-        repository.save_payload(payload)
+    repository.save_payload(payload)
     for status in payload.sources.values():
         repository.record_source_status(status)
     write_dashboard_json(payload, export_path)
