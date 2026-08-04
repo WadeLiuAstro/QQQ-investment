@@ -6,6 +6,7 @@ from app.models import SourceStatus
 from app.providers.cnn_fear_greed import FearGreedReading
 from app.providers.yahoo import PriceBar, Quote
 from app.scheduler import collect_dashboard_payload
+from app.services.session import NY_TZ
 
 RULE_KEYS = {
     "rsi2_oversold",
@@ -116,3 +117,71 @@ def test_decision_fields_unchanged_by_matrix(monkeypatch: pytest.MonkeyPatch) ->
     assert payload.decision.allocation_max == expected.allocation_max
     assert payload.decision.target_allocation == expected.target_allocation
     assert payload.decision.dca_multiplier == expected.dca_multiplier
+
+
+def _patch_session(monkeypatch: pytest.MonkeyPatch, market_open: bool) -> None:
+    monkeypatch.setattr(
+        "app.scheduler.is_regular_session_open", lambda now=None: market_open
+    )
+    monkeypatch.setattr(
+        "app.scheduler.session_elapsed_fraction", lambda now=None: (0.5 if market_open else None)
+    )
+
+
+def _install_today_mocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    today = datetime.now(NY_TZ).date()
+    qqq_bars = [
+        PriceBar(day=today - timedelta(days=len(range(210)) - index), close=100.0 + index * 0.5, volume=1_000_000)
+        for index in range(210)
+    ]
+    qqq_bars[-1] = PriceBar(day=today, close=205.0, volume=1_000_000)
+
+    def fake_bars(symbol: str, period: str):
+        if symbol == "QQQ":
+            return qqq_bars, status("yahoo")
+        return bars([50.0 + index for index in range(30)]), status("yahoo")
+
+    def fake_quote(symbol: str):
+        return (
+            Quote(symbol=symbol, price=205.0, previous_close=200.0, is_intraday_estimate=True),
+            status("yahoo_quote"),
+        )
+
+    monkeypatch.setattr("app.scheduler.fetch_daily_bars", fake_bars)
+    monkeypatch.setattr("app.scheduler.fetch_quote", fake_quote)
+    monkeypatch.setattr(
+        "app.scheduler.fetch_fear_greed",
+        lambda client: (None, status("cnn_fear_greed", available=False)),
+    )
+    monkeypatch.setattr(
+        "app.scheduler.load_macro_events", lambda client, start, end: ([], status("macro_calendar"))
+    )
+
+
+def test_intraday_session_extrapolates_volume_and_marks_estimated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_session(monkeypatch, market_open=True)
+    _install_today_mocks(monkeypatch)
+
+    payload = collect_dashboard_payload(None)
+
+    indicators = payload.market["qqq"]["indicators"]
+    assert indicators["volume_is_estimated"] is True
+    assert indicators["volume_ratio"] == 2.0
+    matrix = {row["rule"]: row for row in payload.market["qqq"]["threshold_matrix"]}
+    assert matrix["volume_ratio_high"]["note"] == "盘中估算"
+    assert matrix["volume_ratio_high"]["available"] is True
+
+
+def test_closed_session_keeps_raw_volume(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_session(monkeypatch, market_open=False)
+    _install_today_mocks(monkeypatch)
+
+    payload = collect_dashboard_payload(None)
+
+    indicators = payload.market["qqq"]["indicators"]
+    assert indicators["volume_is_estimated"] is False
+    assert indicators["volume_ratio"] == 1.0
+    matrix = {row["rule"]: row for row in payload.market["qqq"]["threshold_matrix"]}
+    assert matrix["volume_ratio_high"]["note"] is None

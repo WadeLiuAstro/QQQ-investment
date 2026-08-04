@@ -18,6 +18,7 @@ from app.services.decision import evaluate_decision
 from app.services.explanation import build_threshold_matrix
 from app.services.export import write_dashboard_json
 from app.services.indicators import calculate_indicators
+from app.services.session import NY_TZ, is_regular_session_open, session_elapsed_fraction
 
 SYMBOLS = {
     "qqq": "QQQ",
@@ -75,6 +76,7 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
                 "is_intraday_estimate": quote.is_intraday_estimate,
             }
         )
+    market_open = is_regular_session_open()
 
     with httpx.Client() as client:
         fear_greed, fear_status = fetch_fear_greed(client)
@@ -87,9 +89,13 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
     decision = None
     backtest = None
     if qqq_bars:
+        volume_fraction = None
+        if market_open and qqq_bars[-1].day == datetime.now(NY_TZ).date():
+            volume_fraction = session_elapsed_fraction()
         indicators = calculate_indicators(
             qqq_bars,
             intraday_price=quote.price if quote else None,
+            volume_elapsed_fraction=volume_fraction,
         )
         indicators = replace(
             indicators,

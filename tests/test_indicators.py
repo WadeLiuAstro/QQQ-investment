@@ -42,3 +42,23 @@ def test_indicator_calculates_drawdown_and_volume_ratio() -> None:
 
     assert indicators.drawdown_pct == round((100.0 / 120.0 - 1.0) * 100, 2)
     assert indicators.volume_ratio == 3.0
+
+
+def test_volume_ratio_extrapolated_during_intraday_session() -> None:
+    volumes = [1_000_000] * 20 + [1_000_000]
+
+    indicators = calculate_indicators(
+        bars_from_closes([100.0] * 21, volumes), volume_elapsed_fraction=0.5
+    )
+
+    assert indicators.volume_ratio == 2.0
+    assert indicators.volume_is_estimated is True
+
+
+def test_volume_ratio_without_fraction_keeps_raw_value() -> None:
+    volumes = [1_000_000] * 20 + [1_000_000]
+
+    indicators = calculate_indicators(bars_from_closes([100.0] * 21, volumes))
+
+    assert indicators.volume_ratio == 1.0
+    assert indicators.volume_is_estimated is False

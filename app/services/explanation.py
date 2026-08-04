@@ -69,6 +69,12 @@ def build_threshold_matrix(
         distance = distance_to_trigger(current, threshold, kind)
         direction = _direction_for(rule, qqq_bars, vix_bars)
         available = current is not None
+        if not available:
+            note = "未参与本次判断"
+        elif rule == "volume_ratio_high" and indicators.volume_is_estimated:
+            note = "盘中估算"
+        else:
+            note = None
         rows.append(
             ThresholdDistanceRow(
                 rule=rule,
@@ -79,7 +85,7 @@ def build_threshold_matrix(
                 unit=unit,
                 direction=direction,
                 available=available,
-                note=None if available else "未参与本次判断",
+                note=note,
             )
         )
     return rows

@@ -138,6 +138,18 @@ def test_missing_indicator_marks_row_unavailable() -> None:
     assert row.note == "未参与本次判断"
 
 
+def test_estimated_volume_row_is_marked_but_stays_available() -> None:
+    row = by_rule(
+        build_threshold_matrix(
+            None, None, sample_indicators(volume_is_estimated=True), load_rule_config()
+        )
+    )["volume_ratio_high"]
+
+    assert row.available is True
+    assert row.note == "盘中估算"
+    assert row.distance == 0.74
+
+
 def test_matrix_reads_thresholds_from_rules_not_hardcoded() -> None:
     rules = RuleConfig(
         states=[],

@@ -10,5 +10,6 @@ def test_threshold_matrix_dom_contract_and_styles() -> None:
     assert "近 5 日方向" in script and "触发条件" in script
     assert "未参与本次判断" in script
     assert "扩大" in script and "收窄" in script
+    assert "r.note" in script  # available 行的盘中估算等备注也要渲染
     assert ".threshold-matrix" in styles
     assert "@media(max-width:640px)" in styles and "threshold-matrix" in styles
