@@ -16,6 +16,7 @@
 - 状态历史：每次刷新把 decision 快照写入 SQLite `state_history` 表（含状态未变时），payload 顶层 `state_history` 只输出切换事件与当前持续时长（刷新次数），不含收益统计（后续迭代）；决策缺失时不记录。
 - 情景推演模拟器（`simulateScenario` + `SIM_THRESHOLDS`）是前端复制规则判定的**唯一例外**（GitHub Pages 无后端 API）；阈值与 `default_rules.json` 的一致性由 `test_scenario_static.py` 断言约束，结果必须带"模拟结果，不是当前实时信号"标识且不写回正式数据。
 - 低噪声提醒（`app/services/alerts.py`）：仅页面内展示、不推送；触发条件为边沿事件（状态切换、指标进入缓冲、进入防御、数据源连续失败、FOMC/CPI/非农 3 天内临近），缓冲值 RSI 5.0/回撤 2.0pp/VIX 3.0/成交量 0.3 倍，key 去重保证同一提醒不重复；调整触发条件属于产品语义变更，须用户授权。
+- 市场宽度佐证（`app/services/breadth.py`）：P2 佐证层第一个指标，QQQE vs QQQ 相对强弱四态标签（集中度偏高/等权同步走强/宽度与指数同步/回调期宽度观察），RS 阈值 ±1 个百分点写入测试；只作展示绝不进入决策，调整标签语义须用户授权。
 
 ## 已知数据源状态
 
