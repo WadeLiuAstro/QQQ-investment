@@ -37,3 +37,28 @@ def test_fear_greed_failure_returns_unavailable_status() -> None:
     assert reading is None
     assert status.available is False
     assert status.source == "cnn_fear_greed"
+
+
+def test_fear_greed_request_sends_browser_headers() -> None:
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(request.headers)
+        return httpx.Response(
+            200,
+            json={
+                "fear_and_greed": {
+                    "score": 45,
+                    "rating": "neutral",
+                    "timestamp": "2026-08-04T00:00:00Z",
+                }
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        reading, status = fetch_fear_greed(client)
+
+    assert status.available is True
+    assert captured.get("user-agent", "").startswith("Mozilla/5.0")
+    assert "referer" in captured
+    assert "cnn.com" in captured.get("referer", "")
