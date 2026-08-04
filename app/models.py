@@ -52,6 +52,20 @@ class ThresholdDistanceRow(BaseModel):
     note: str | None = None
 
 
+class WatchCondition(BaseModel):
+    label: str
+    condition: str
+    met: bool = False
+    note: str | None = None
+
+
+class ActionCard(BaseModel):
+    extra_top_up_ready: bool
+    extra_top_up_reason: str
+    watch_conditions: list[WatchCondition]
+    data_completeness: dict[str, object]
+
+
 class DashboardPayload(BaseModel):
     generated_at: datetime
     sources: dict[str, SourceStatus]
@@ -59,4 +73,5 @@ class DashboardPayload(BaseModel):
     market: dict[str, dict[str, object]] = Field(default_factory=dict)
     events: list[MacroEvent] = Field(default_factory=list)
     backtest: dict[str, object] | None = None
+    action_card: dict[str, object] | None = None
 
