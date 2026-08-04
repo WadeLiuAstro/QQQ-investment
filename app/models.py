@@ -96,6 +96,16 @@ class Alert(BaseModel):
     detail: str
 
 
+class Breadth(BaseModel):
+    qqqe_price: float | None = None
+    relative_strength_5d: float | None = None
+    relative_strength_20d: float | None = None
+    qqq_return_20d: float | None = None
+    label: str | None = None
+    available: bool = True
+    note: str | None = None
+
+
 class DashboardPayload(BaseModel):
     generated_at: datetime
     sources: dict[str, SourceStatus]
