@@ -13,6 +13,7 @@ from app.providers.cnn_fear_greed import fetch_fear_greed
 from app.providers.macro_calendar import load_macro_events
 from app.providers.yahoo import fetch_daily_bars, fetch_quote
 from app.services.backtest import run_backtest
+from app.services.action_card import build_action_card
 from app.services.dashboard import build_dashboard_payload
 from app.services.decision import evaluate_decision
 from app.services.explanation import build_threshold_matrix
@@ -88,6 +89,7 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
 
     decision = None
     backtest = None
+    action_card = None
     if qqq_bars:
         volume_fraction = None
         if market_open and qqq_bars[-1].day == datetime.now(NY_TZ).date():
@@ -122,6 +124,9 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
             "state_counts": result.state_counts,
             "benchmark_return": result.benchmark_return,
         }
+        action_card = build_action_card(
+            indicators, decision, load_rule_config(), sources
+        ).model_dump()
 
     return build_dashboard_payload(
         generated_at=generated_at,
@@ -130,6 +135,7 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
         decision=decision,
         events=events,
         backtest=backtest,
+        action_card=action_card,
         previous=previous,
     )
 

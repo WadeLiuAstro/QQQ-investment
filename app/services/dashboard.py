@@ -11,11 +11,13 @@ def build_dashboard_payload(
     decision: Decision | None = None,
     events: list[MacroEvent] | None = None,
     backtest: dict[str, object] | None = None,
+    action_card: dict[str, object] | None = None,
     previous: DashboardPayload | None = None,
 ) -> DashboardPayload:
     resolved_market = market
     resolved_events = events
     resolved_backtest = backtest
+    resolved_action_card = action_card
     resolved_sources = dict(sources)
     if previous is not None:
         if resolved_market is None:
@@ -27,6 +29,8 @@ def build_dashboard_payload(
             resolved_events = previous.events
         if resolved_backtest is None:
             resolved_backtest = previous.backtest
+        if resolved_action_card is None:
+            resolved_action_card = previous.action_card
     return DashboardPayload(
         generated_at=generated_at,
         sources=resolved_sources,
@@ -34,6 +38,7 @@ def build_dashboard_payload(
         market=resolved_market or {},
         events=resolved_events or [],
         backtest=resolved_backtest,
+        action_card=resolved_action_card,
     )
 
 
