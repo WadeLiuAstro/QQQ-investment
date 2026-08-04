@@ -5,7 +5,7 @@ def test_yahoo_quote_maps_fast_info() -> None:
     class Ticker:
         fast_info = {"last_price": 510.25, "previous_close": 505.0}
 
-    quote, status = fetch_quote("QQQ", ticker_factory=lambda _: Ticker())
+    quote, status = fetch_quote("QQQ", ticker_factory=lambda _: Ticker(), market_open=True)
 
     assert status.available is True
     assert quote.symbol == "QQQ"

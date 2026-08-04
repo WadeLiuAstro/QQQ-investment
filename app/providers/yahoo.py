@@ -1,10 +1,11 @@
-﻿from dataclasses import dataclass
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Callable
 
 import yfinance as yf
 
 from app.models import SourceStatus
+from app.services.session import is_regular_session_open
 
 
 @dataclass(frozen=True)
@@ -56,8 +57,11 @@ def fetch_daily_bars(
 def fetch_quote(
     symbol: str,
     ticker_factory: Callable[[str], object] = yf.Ticker,
+    market_open: bool | None = None,
 ) -> tuple[Quote | None, SourceStatus]:
     checked_at = datetime.now(UTC)
+    if market_open is None:
+        market_open = is_regular_session_open()
     try:
         ticker = ticker_factory(symbol)
         fast_info = ticker.fast_info
@@ -65,7 +69,7 @@ def fetch_quote(
             symbol=symbol,
             price=float(fast_info["last_price"]),
             previous_close=float(fast_info["previous_close"]),
-            is_intraday_estimate=True,
+            is_intraday_estimate=market_open,
         )
         return quote, SourceStatus(source="yahoo_quote", available=True, checked_at=checked_at)
     except (AttributeError, KeyError, TypeError, ValueError, RuntimeError) as error:
