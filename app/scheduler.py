@@ -1,4 +1,4 @@
-﻿from dataclasses import asdict, replace
+from dataclasses import asdict, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Callable
@@ -15,6 +15,7 @@ from app.providers.yahoo import fetch_daily_bars, fetch_quote
 from app.services.backtest import run_backtest
 from app.services.dashboard import build_dashboard_payload
 from app.services.decision import evaluate_decision
+from app.services.explanation import build_threshold_matrix
 from app.services.export import write_dashboard_json
 from app.services.indicators import calculate_indicators
 
@@ -51,6 +52,7 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
     sources: dict[str, SourceStatus] = {}
     qqq_bars = None
     vix_value = None
+    vix_bars = None
 
     for key, symbol in SYMBOLS.items():
         bars, status = fetch_daily_bars(symbol, "1y")
@@ -61,6 +63,7 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
                 qqq_bars = bars
             if key == "vix":
                 vix_value = bars[-1].close
+                vix_bars = bars
 
     quote, quote_status = fetch_quote("QQQ")
     sources["yahoo_quote"] = quote_status
@@ -95,6 +98,10 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
         )
         decision = evaluate_decision(indicators, load_rule_config())
         market["qqq"]["indicators"] = asdict(indicators)
+        market["qqq"]["threshold_matrix"] = [
+            row.model_dump()
+            for row in build_threshold_matrix(qqq_bars, vix_bars, indicators, load_rule_config())
+        ]
         if fear_greed:
             market["qqq"]["fear_greed"] = {
                 "score": fear_greed.score,
