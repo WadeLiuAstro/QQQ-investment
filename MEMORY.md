@@ -17,6 +17,8 @@
 - 情景推演模拟器（`simulateScenario` + `SIM_THRESHOLDS`）是前端复制规则判定的**唯一例外**（GitHub Pages 无后端 API）；阈值与 `default_rules.json` 的一致性由 `test_scenario_static.py` 断言约束，结果必须带"模拟结果，不是当前实时信号"标识且不写回正式数据。
 - 低噪声提醒（`app/services/alerts.py`）：仅页面内展示、不推送；触发条件为边沿事件（状态切换、指标进入缓冲、进入防御、数据源连续失败、FOMC/CPI/非农 3 天内临近），缓冲值 RSI 5.0/回撤 2.0pp/VIX 3.0/成交量 0.3 倍，key 去重保证同一提醒不重复；调整触发条件属于产品语义变更，须用户授权。
 - 市场宽度佐证（`app/services/breadth.py`）：P2 佐证层第一个指标，QQQE vs QQQ 相对强弱四态标签（集中度偏高/等权同步走强/宽度与指数同步/回调期宽度观察），RS 阈值 ±1 个百分点写入测试；只作展示绝不进入决策，调整标签语义须用户授权。
+- 体系参考层（S1，`app/services/trend.py` + `app/services/structural.py`）：`market.qqq.trend` 为 MA200 趋势状态机（多头=收盘价≥MA200 收复即算；空头=连续 3 日低于且偏离≥1%；前轮空头未收复时保持；单月回撤≥8% 触发熔断），`market.qqq.structural_risk` 为四维结构评分（深度 30/速度 20/宽度 25/波动率 25，档位 <40 normal、40–69 watch 加仓减半、≥70 critical 冻结加仓）。二者均为参考层，不改变五档正式决策；规则语义来自 `docs/investment-system.md`，调整须用户授权。
+- 归因拍板机制（S2，`app/services/attribution.py` + API）：大跌触发（单日 ≤ -2% 或回撤跨新 5% 档）后机器举证、人拍板三分类（流动性恐慌→放行/结构性→冻结/待观察→减半+48h 复核），超时未拍板=减半执行；闸门写入 `market.qqq.attribution`，拍板落 SQLite `attribution_decisions`，`decision_log` 记录 signal/attribution/execution；**架构决策（用户拍板）**：GitHub Pages 无写能力，采用本地服务器写库为主 + 前端"导出 JSON 手动提交"降级（C 方案）。
 
 ## 已知数据源状态
 
@@ -25,6 +27,8 @@
 - Yahoo Finance 抓取可能短暂失败；`^IXIC` 采用独立快照降级，页面不能将过期数据当成实时数据。
 - 已复现：Yahoo 日线端点在盘后时段可能返回最后一根 bar 的 Close 为 NaN（Open/Volume 正常），会污染 MA200、回撤、决策并使 K 线图报错；提供方层已过滤非有限收盘价/成交量行，改动此处时必须保留该过滤。
 - 时效性约定：所有市场卡带 `stale_lag`（基准=最近已收盘交易日，由 `expected_bar_date` 判定，16:00 后当天算已收盘）；滞后 ≥1 交易日页面显式标注。注意：Yahoo NaN 过滤会让数据停留在上一交易日（表现为滞后 1 个交易日），属数据源暂时现象，标注随数据恢复自动消失，不要为此伪造收盘价。
+- S1 实现经验：结构评分需要 252 根 52 周窗口，QQQ/QQQE 必须取 2y 周期（1y 约 250 根不足）；已按此调整 scheduler。真实快照曾出现 speed_score=20 而 depth_score=0（回撤仅 -5%），符合体系口径（速度维度独立计分）但视觉上偏大，若用户后续认为不合理需走体系修订流程。
+- S2 实现经验：回撤档位判定用 `ceil(dd/5)` 并先 round 到两位小数，否则浮点误差会把 -10.0% 抬到 -1 档造成误触发；evidence.day 经 JSON 序列化后是字符串，`attach_attribution_gate` 需 `date.fromisoformat` 还原。
 - 数据准确性约定：估算语义按美东交易时段判断（盘中估算/收盘正式）；盘中成交量按已交易时段占比外推并显式标注"盘中估算"；Yahoo 抓取失败先重试 1 次再降级。已知遗留问题：Yahoo 未复权收盘价在除息日会产生人为跳空，轻微影响 RSI/回撤；复权价改造需先回测对比并另行确认后再做。
 
 ### 降级原则

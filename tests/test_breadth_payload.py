@@ -98,4 +98,4 @@ def test_data_completeness_total_includes_qqqe(monkeypatch: pytest.MonkeyPatch) 
 
     payload = collect_dashboard_payload(None)
 
-    assert payload.action_card["data_completeness"]["total"] == 13
+    assert payload.action_card["data_completeness"]["total"] == 14

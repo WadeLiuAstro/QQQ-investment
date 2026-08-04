@@ -10,6 +10,7 @@ _SOURCE_LABELS = {
     "yahoo_xlf": "金融板块",
     "yahoo_ixic": "纳指 K 线",
     "yahoo_vix": "VIX",
+    "yahoo_vix3m": "VIX3M（约 2 周滞后）",
     "yahoo_treasury_10y": "美债收益率",
     "yahoo_dollar_index": "美元指数",
     "yahoo_quote": "实时报价",

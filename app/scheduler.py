@@ -15,6 +15,11 @@ from app.providers.yahoo import fetch_daily_bars, fetch_quote
 from app.services.backtest import run_backtest
 from app.services.action_card import build_action_card
 from app.services.alerts import build_alerts
+from app.services.attribution import (
+    CrashEvidence,
+    build_evidence_set,
+    evaluate_attribution_gate,
+)
 from app.services.breadth import build_breadth
 from app.services.dashboard import build_dashboard_payload
 from app.services.decision import evaluate_decision
@@ -29,6 +34,8 @@ from app.services.session import (
     trading_day_lag,
 )
 from app.services.state_history import build_state_history
+from app.services.structural import compute_structural_score
+from app.services.trend import evaluate_trend
 
 SYMBOLS = {
     "qqq": "QQQ",
@@ -39,6 +46,7 @@ SYMBOLS = {
     "xlf": "XLF",
     "ixic": "^IXIC",
     "vix": "^VIX",
+    "vix3m": "^VIX3M",
     "treasury_10y": "^TNX",
     "dollar_index": "DX-Y.NYB",
 }
@@ -51,6 +59,7 @@ def refresh_once(
 ) -> DashboardPayload:
     previous = repository.load_latest_payload()
     payload = (collect or collect_dashboard_payload)(previous)
+    payload = attach_attribution_gate(payload, repository)
     repository.save_payload(payload)
     repository.record_state(payload)
     alerts = [alert.model_dump() for alert in build_alerts(previous, payload)]
@@ -74,9 +83,12 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
     qqqe_bars = None
     vix_value = None
     vix_bars = None
+    vix3m_bars = None
 
     for key, symbol in SYMBOLS.items():
-        bars, status = fetch_daily_bars(symbol, "1y")
+        # 结构评分需要 252 根 52 周窗口，QQQ/QQQE 取 2y 保证足够历史
+        period = "2y" if key in ("qqq", "qqqe") else "1y"
+        bars, status = fetch_daily_bars(symbol, period)
         sources[f"yahoo_{key}"] = status.model_copy(update={"source": f"yahoo_{key}"})
         if bars:
             market[key] = _market_card(
@@ -89,6 +101,8 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
             if key == "vix":
                 vix_value = bars[-1].close
                 vix_bars = bars
+            if key == "vix3m":
+                vix3m_bars = bars
 
     quote, quote_status = fetch_quote("QQQ")
     sources["yahoo_quote"] = quote_status
@@ -134,6 +148,15 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
             for row in build_threshold_matrix(qqq_bars, vix_bars, indicators, load_rule_config())
         ]
         market["qqq"]["breadth"] = build_breadth(qqq_bars, qqqe_bars).model_dump()
+        market["qqq"]["trend"] = asdict(
+            evaluate_trend(qqq_bars, previous_regime=_previous_trend_regime(previous))
+        )
+        market["qqq"]["structural_risk"] = asdict(
+            compute_structural_score(qqq_bars, qqqe_bars, vix_bars, vix3m_bars)
+        )
+        market["qqq"]["attribution"] = {
+            "evidence": asdict(build_evidence_set(qqq_bars, vix_bars, qqqe_bars, events))
+        }
         if fear_greed:
             market["qqq"]["fear_greed"] = {
                 "score": fear_greed.score,
@@ -162,6 +185,59 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
         action_card=action_card,
         previous=previous,
     )
+
+
+def _previous_trend_regime(previous: DashboardPayload | None) -> str | None:
+    """从上一快照读取 MA200 趋势状态，供状态机维持空头环境。"""
+    if previous is None or previous.market is None:
+        return None
+    qqq = previous.market.get("qqq")
+    trend = qqq.get("trend") if qqq else None
+    if isinstance(trend, dict):
+        return trend.get("regime")
+    return None
+
+
+def attach_attribution_gate(
+    payload: DashboardPayload, repository: SnapshotRepository
+) -> DashboardPayload:
+    """把归因闸门（gate）与最近拍板写入 payload.market.qqq.attribution。"""
+    if payload.market is None:
+        return payload
+    qqq = payload.market.get("qqq")
+    attribution = qqq.get("attribution") if qqq else None
+    if not isinstance(attribution, dict):
+        return payload
+    evidence_dict = attribution.get("evidence")
+    if not isinstance(evidence_dict, dict):
+        return payload
+
+    # day 经 JSON 序列化后为 ISO 字符串，还原为 date
+    day_raw = evidence_dict.get("day")
+    day = date.fromisoformat(day_raw) if isinstance(day_raw, str) else day_raw
+    evidence = CrashEvidence(**{**evidence_dict, "day": day})
+    incident_key = evidence.day.isoformat() if evidence.day else "unknown"
+    decision = repository.load_attribution_decision(incident_key)
+    gate = evaluate_attribution_gate(evidence, decision)
+
+    if evidence.triggered and decision is None:
+        repository.append_decision_log(
+            category="signal",
+            incident_key=incident_key,
+            content={
+                "kind": "crash_triggered",
+                "daily_change_pct": evidence.daily_change_pct,
+                "drawdown_pct": evidence.drawdown_pct,
+            },
+        )
+
+    updated_attribution = {
+        **attribution,
+        "gate": asdict(gate),
+        "decision": decision,
+    }
+    updated_qqq = {**qqq, "attribution": updated_attribution}
+    return payload.model_copy(update={"market": {**payload.market, "qqq": updated_qqq}})
 
 
 def _market_card(

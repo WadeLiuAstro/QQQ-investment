@@ -15,6 +15,9 @@
     <section class="grid"><article class="card"><p class="label">板块佐证</p><div id="sector-grid" class="sectors"></div></article><article id="backtest-summary" class="card"><p class="label">回测摘要</p><div id="backtest" class="metrics"></div></article></section>
     <section class="card"><p class="label">状态历史（最近 90 天）</p><div id="state-history"></div></section>
     <section class="card"><p class="label">市场宽度佐证（QQQE 相对 QQQ）</p><div id="breadth-card"></div></section>
+<section class="grid"><article class="card"><p class="label">体系趋势层（MA200 · 参考层）</p><div id="trend-card"></div></article><article class="card"><p class="label">结构性风险评分（参考层）</p><div id="structural-card"></div></article></section>
+<section class="card"><p class="label">大跌归因（机器举证 · 人拍板 · 超时减半）</p><div id="attribution-card"></div></section>
+<section class="card"><p class="label">决策日志（最近 50 条）</p><div id="decision-log-card"></div></section>
     <section id="scenario-panel" class="card"><p class="label">情景推演（如果……会怎样）</p><div class="sim-inputs"><label>QQQ 价格<input id="sim-price" type="number" step="0.01"></label><label>RSI(2)<input id="sim-rsi2" type="number" step="0.01"></label><label>RSI(6)<input id="sim-rsi6" type="number" step="0.01"></label><label>回撤 %<input id="sim-drawdown" type="number" step="0.01"></label><label>VIX<input id="sim-vix" type="number" step="0.01"></label><label>成交量比<input id="sim-volume" type="number" step="0.01"></label></div><div class="sim-actions"><button id="simulate-button">模拟</button><button id="sim-reset-button">重置</button></div><div id="scenario-result" class="sim-result"></div></section>
     <section id="data-status" class="status"></section>
   </main>

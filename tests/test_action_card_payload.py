@@ -68,7 +68,7 @@ def test_payload_contains_action_card_fields(monkeypatch: pytest.MonkeyPatch) ->
         "data_completeness",
     }
     assert len(payload.action_card["watch_conditions"]) == 3
-    assert payload.action_card["data_completeness"]["total"] == 13
+    assert payload.action_card["data_completeness"]["total"] == 14
 
 
 def test_action_card_consistent_with_independent_calculation(
