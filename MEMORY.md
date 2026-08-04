@@ -14,6 +14,7 @@
 - 页面维持深色投研终端风格；上涨用 `#3DDC97`，下跌用 `#F0656B`，不要引入冲突的涨跌配色。
 - 本期行动卡的"关键观察条件"按当前状态固定映射（防御/谨慎、中性、建设性、机会四组），由 `app/services/action_card.py` 维护并写入测试；调整该映射属于产品语义变更，须用户授权。
 - 状态历史：每次刷新把 decision 快照写入 SQLite `state_history` 表（含状态未变时），payload 顶层 `state_history` 只输出切换事件与当前持续时长（刷新次数），不含收益统计（后续迭代）；决策缺失时不记录。
+- 情景推演模拟器（`simulateScenario` + `SIM_THRESHOLDS`）是前端复制规则判定的**唯一例外**（GitHub Pages 无后端 API）；阈值与 `default_rules.json` 的一致性由 `test_scenario_static.py` 断言约束，结果必须带"模拟结果，不是当前实时信号"标识且不写回正式数据。
 
 ## 已知数据源状态
 
