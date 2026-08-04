@@ -89,6 +89,13 @@ class StateHistory(BaseModel):
     current_duration_ticks: int
 
 
+class Alert(BaseModel):
+    key: str
+    kind: str
+    title: str
+    detail: str
+
+
 class DashboardPayload(BaseModel):
     generated_at: datetime
     sources: dict[str, SourceStatus]
@@ -98,4 +105,5 @@ class DashboardPayload(BaseModel):
     backtest: dict[str, object] | None = None
     action_card: dict[str, object] | None = None
     state_history: dict[str, object] | None = None
+    alerts: list[dict[str, object]] | None = None
 
