@@ -15,7 +15,7 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 
 ### 刷新与数据流
 
-`app/scheduler.py` 调用行情和宏观提供方，生成 market、events、sources、decision、backtest；`app/services/dashboard.py` 负责快照降级；结果写入本地 SQLite 和 `static/data/dashboard.json`。FastAPI 从快照/API 提供本地页面，GitHub Actions 重新运行刷新脚本后发布整个 `static/` 目录。
+`app/scheduler.py` 调用行情和宏观提供方，生成 market、events、sources、decision、backtest；`app/services/dashboard.py` 负责快照降级；结果写入本地 SQLite 和 `static/data/dashboard.json`。`market.qqq.threshold_matrix` 由 `app/services/explanation.py` 的 `build_threshold_matrix` 生成，包含每行规则的当前值、触发条件、距离、单位、近 5 日方向与可用性。FastAPI 从快照/API 提供本地页面，GitHub Actions 重新运行刷新脚本后发布整个 `static/` 目录。
 
 `static/assets/app.js` 只做展示与解释，不能自行计算或覆盖仓位状态。页面中显示的状态、仓位、定投倍率都以 payload 中的 `decision` 为准。
 
@@ -43,7 +43,8 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 - 顶部信号带之后显示 `^IXIC` K 线卡片。
 - 板块佐证为中文名称、ETF 代码和价格的单行横向卡片；桌面两列、手机单列。
 - VIX 需标为“VIX（恐慌指数）”。
-- 信号拆解必须显示当前值与规则阈值，而非只显示“未触发”。
+- 信号拆解必须显示当前值与规则阈值，而非只显示"未触发"。
+- 阈值距离矩阵（`threshold_matrix`）展示在信号拆解区域顶部：5 行固定顺序（RSI(2) 超卖、RSI(6) 超卖、回撤风险、VIX、异常放量），列包含当前值、触发条件、距离、近 5 日方向。已触发的风险行用红色、机会行用绿色；数据不可用时行标为"未参与本次判断"。
 
 ## 关键文件地图
 
@@ -52,6 +53,7 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 | API、应用生命周期、静态文件 | `app/main.py` |
 | 行情聚合、15 分钟调度、快照导出 | `app/scheduler.py` |
 | QQQ 状态规则 | `app/services/decision.py` |
+| 阈值距离与方向矩阵 | `app/services/explanation.py` |
 | RSI、均线、回撤、成交量等指标 | `app/services/indicators.py` |
 | 快照和单模块降级 | `app/services/dashboard.py`、`app/db.py` |
 | 数据源适配 | `app/providers/` |
