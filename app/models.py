@@ -1,4 +1,4 @@
-﻿from datetime import datetime
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -38,6 +38,18 @@ class Decision(BaseModel):
     reasons: list[str]
     non_triggers: list[str]
     actionability: str
+
+
+class ThresholdDistanceRow(BaseModel):
+    rule: str
+    label: str
+    current: float | None = None
+    condition: str
+    distance: float | None = None
+    unit: str
+    direction: str | None = None
+    available: bool = True
+    note: str | None = None
 
 
 class DashboardPayload(BaseModel):
