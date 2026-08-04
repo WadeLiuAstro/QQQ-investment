@@ -18,7 +18,7 @@ def test_yahoo_quote_failure_returns_unavailable_status() -> None:
     def failing_factory(_: str) -> object:
         raise RuntimeError("quote provider unavailable")
 
-    quote, status = fetch_quote("QQQ", ticker_factory=failing_factory)
+    quote, status = fetch_quote("QQQ", ticker_factory=failing_factory, sleeper=lambda _s: None)
 
     assert quote is None
     assert status.available is False

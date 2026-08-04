@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from time import sleep
 from typing import Callable
 
 import yfinance as yf
@@ -26,14 +27,38 @@ class Quote:
     is_intraday_estimate: bool
 
 
+RETRYABLE = (AttributeError, KeyError, TypeError, ValueError, RuntimeError)
+
+
+def _call_with_retry(
+    fn: Callable[[], object],
+    sleeper: Callable[[float], None] = sleep,
+    attempts: int = 2,
+    delay: float = 0.5,
+) -> object:
+    """Run fn, retrying once after a short backoff on retryable errors."""
+    for index in range(attempts):
+        try:
+            return fn()
+        except RETRYABLE:
+            if index == attempts - 1:
+                raise
+            sleeper(delay)
+    raise AssertionError("unreachable")
+
+
 def fetch_daily_bars(
     symbol: str,
     period: str,
     downloader: Callable[..., object] = yf.download,
+    sleeper: Callable[[float], None] = sleep,
 ) -> tuple[list[PriceBar] | None, SourceStatus]:
     checked_at = datetime.now(UTC)
     try:
-        frame = downloader(symbol, period=period, interval="1d", progress=False, auto_adjust=False)
+        frame = _call_with_retry(
+            lambda: downloader(symbol, period=period, interval="1d", progress=False, auto_adjust=False),
+            sleeper=sleeper,
+        )
         if frame.empty:
             raise ValueError("empty market-data response")
         if getattr(frame.columns, "nlevels", 1) > 1:
@@ -58,13 +83,16 @@ def fetch_quote(
     symbol: str,
     ticker_factory: Callable[[str], object] = yf.Ticker,
     market_open: bool | None = None,
+    sleeper: Callable[[float], None] = sleep,
 ) -> tuple[Quote | None, SourceStatus]:
     checked_at = datetime.now(UTC)
     if market_open is None:
         market_open = is_regular_session_open()
     try:
-        ticker = ticker_factory(symbol)
-        fast_info = ticker.fast_info
+        def _load() -> object:
+            return ticker_factory(symbol).fast_info
+
+        fast_info = _call_with_retry(_load, sleeper=sleeper)
         quote = Quote(
             symbol=symbol,
             price=float(fast_info["last_price"]),
