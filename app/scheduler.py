@@ -15,6 +15,7 @@ from app.providers.yahoo import fetch_daily_bars, fetch_quote
 from app.services.backtest import run_backtest
 from app.services.action_card import build_action_card
 from app.services.alerts import build_alerts
+from app.services.breadth import build_breadth
 from app.services.dashboard import build_dashboard_payload
 from app.services.decision import evaluate_decision
 from app.services.explanation import build_threshold_matrix
@@ -25,6 +26,7 @@ from app.services.state_history import build_state_history
 
 SYMBOLS = {
     "qqq": "QQQ",
+    "qqqe": "QQQE",
     "xlk": "XLK",
     "smh": "SMH",
     "xle": "XLE",
@@ -63,6 +65,7 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
     market: dict[str, dict[str, object]] = {}
     sources: dict[str, SourceStatus] = {}
     qqq_bars = None
+    qqqe_bars = None
     vix_value = None
     vix_bars = None
 
@@ -73,6 +76,8 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
             market[key] = _market_card(symbol, bars)
             if key == "qqq":
                 qqq_bars = bars
+            if key == "qqqe":
+                qqqe_bars = bars
             if key == "vix":
                 vix_value = bars[-1].close
                 vix_bars = bars
@@ -120,6 +125,7 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
             row.model_dump()
             for row in build_threshold_matrix(qqq_bars, vix_bars, indicators, load_rule_config())
         ]
+        market["qqq"]["breadth"] = build_breadth(qqq_bars, qqqe_bars).model_dump()
         if fear_greed:
             market["qqq"]["fear_greed"] = {
                 "score": fear_greed.score,
