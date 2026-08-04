@@ -15,7 +15,7 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 
 ### 刷新与数据流
 
-`app/scheduler.py` 调用行情和宏观提供方，生成 market、events、sources、decision、backtest；`app/services/dashboard.py` 负责快照降级；结果写入本地 SQLite 和 `static/data/dashboard.json`。`market.qqq.threshold_matrix` 由 `app/services/explanation.py` 的 `build_threshold_matrix` 生成，包含每行规则的当前值、触发条件、距离、单位、近 5 日方向与可用性。每次刷新会把 decision 快照写入 `state_history` 表，`refresh_once` 组装 payload 顶层 `state_history`（最近 90 天切换事件与当前状态持续时长；decision 为 None 时不生成）。FastAPI 从快照/API 提供本地页面，GitHub Actions 重新运行刷新脚本后发布整个 `static/` 目录。
+`app/scheduler.py` 调用行情和宏观提供方，生成 market、events、sources、decision、backtest；`app/services/dashboard.py` 负责快照降级；结果写入本地 SQLite 和 `static/data/dashboard.json`。`market.qqq.threshold_matrix` 由 `app/services/explanation.py` 的 `build_threshold_matrix` 生成，包含每行规则的当前值、触发条件、距离、单位、近 5 日方向与可用性。每次刷新会把 decision 快照写入 `state_history` 表，`refresh_once` 组装 payload 顶层 `state_history`（最近 90 天切换事件与当前状态持续时长；decision 为 None 时不生成）。`refresh_once` 还对比相邻快照组装 payload 顶层 `alerts`（边沿事件 + key 去重，低噪声；同一提醒不重复）。FastAPI 从快照/API 提供本地页面，GitHub Actions 重新运行刷新脚本后发布整个 `static/` 目录。
 
 `static/assets/app.js` 只做展示与解释，不能自行计算或覆盖仓位状态。页面中显示的状态、仓位、定投倍率都以 payload 中的 `decision` 为准。
 
@@ -52,6 +52,7 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 - 阈值距离矩阵（`threshold_matrix`）展示在信号拆解区域顶部：5 行固定顺序（RSI(2) 超卖、RSI(6) 超卖、回撤风险、VIX、异常放量），列包含当前值、触发条件、距离、近 5 日方向。已触发的风险行用红色、机会行用绿色；数据不可用时行标为"未参与本次判断"。
 - 状态历史卡片展示最近 90 天切换事件（时间、状态、仓位区间、定投倍率、原因）与当前状态持续时长（刷新次数）；无 `state_history` 字段（旧快照）时隐藏。
 - 情景推演卡片：6 个输入（价格/RSI(2)/RSI(6)/回撤/VIX/成交量比）+ 模拟/重置；结果区强制带"模拟结果，不是当前实时信号"标识，只写入 `#scenario-result`，绝不覆盖正式结论。
+- 顶部提醒条（`alerts`）：五类提醒（状态切换/阈值进入缓冲/进入防御/数据源持续失败/FOMC·CPI·非农临近），带"仅页面内提醒，不推送"注记；空列表或旧快照无该字段时整个横幅隐藏。
 
 ## 关键文件地图
 
@@ -62,6 +63,7 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 | QQQ 状态规则 | `app/services/decision.py` |
 | 本期行动卡（加仓判定、观察条件、完整度） | `app/services/action_card.py` |
 | 状态历史切换与持续时长 | `app/services/state_history.py` |
+| 低噪声提醒（边沿事件 + 去重） | `app/services/alerts.py` |
 | 阈值距离与方向矩阵 | `app/services/explanation.py` |
 | 美东交易时段判断 | `app/services/session.py` |
 | RSI、均线、回撤、成交量等指标 | `app/services/indicators.py` |
