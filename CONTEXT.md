@@ -46,6 +46,7 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 - 板块佐证为中文名称、ETF 代码和价格的单行横向卡片；桌面两列、手机单列。
 - VIX 需标为“VIX（恐慌指数）”。
 - 信号拆解必须显示当前值与规则阈值，而非只显示"未触发"。
+- 顶部信号带即"本期行动卡"：状态、仓位区间、定投倍率 + "额外加仓""数据完整度"chips + "关键观察条件"列表；观察条件按状态固定映射（见 `app/services/action_card.py`），数据来自 payload 顶层 `action_card`。
 - 阈值距离矩阵（`threshold_matrix`）展示在信号拆解区域顶部：5 行固定顺序（RSI(2) 超卖、RSI(6) 超卖、回撤风险、VIX、异常放量），列包含当前值、触发条件、距离、近 5 日方向。已触发的风险行用红色、机会行用绿色；数据不可用时行标为"未参与本次判断"。
 
 ## 关键文件地图
@@ -55,6 +56,7 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 | API、应用生命周期、静态文件 | `app/main.py` |
 | 行情聚合、15 分钟调度、快照导出 | `app/scheduler.py` |
 | QQQ 状态规则 | `app/services/decision.py` |
+| 本期行动卡（加仓判定、观察条件、完整度） | `app/services/action_card.py` |
 | 阈值距离与方向矩阵 | `app/services/explanation.py` |
 | 美东交易时段判断 | `app/services/session.py` |
 | RSI、均线、回撤、成交量等指标 | `app/services/indicators.py` |
