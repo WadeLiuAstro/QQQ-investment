@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from math import isfinite
 from time import sleep
 from typing import Callable
 
@@ -28,6 +29,13 @@ class Quote:
 
 
 RETRYABLE = (AttributeError, KeyError, TypeError, ValueError, RuntimeError)
+
+
+def _is_finite(value: object) -> bool:
+    try:
+        return isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
 
 
 def _call_with_retry(
@@ -66,7 +74,10 @@ def fetch_daily_bars(
         bars = [
             PriceBar(day=index.date(), close=float(row["Close"]), volume=int(row["Volume"]), open=float(row["Open"]) if "Open" in row else None, high=float(row["High"]) if "High" in row else None, low=float(row["Low"]) if "Low" in row else None)
             for index, row in frame.iterrows()
+            if _is_finite(row.get("Close")) and _is_finite(row.get("Volume"))
         ]
+        if not bars:
+            raise ValueError("no finite close values in market-data response")
         return bars, SourceStatus(source="yahoo", available=True, checked_at=checked_at)
     except (AttributeError, KeyError, TypeError, ValueError, RuntimeError) as error:
         return (

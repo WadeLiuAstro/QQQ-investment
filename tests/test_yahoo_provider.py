@@ -92,3 +92,45 @@ def test_yahoo_quote_gives_up_after_two_attempts() -> None:
     assert status.available is False
     assert len(calls) == 2
 
+
+def test_yahoo_download_drops_rows_with_non_finite_close() -> None:
+    from datetime import date
+
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        {
+            "Close": [100.0, float("nan")],
+            "Volume": [1000, 2000],
+            "Open": [99.0, 99.5],
+            "High": [101.0, 100.0],
+            "Low": [98.0, 99.0],
+        },
+        index=[pd.Timestamp("2026-07-31"), pd.Timestamp("2026-08-03")],
+    )
+
+    bars, status = fetch_daily_bars(
+        "QQQ", "1y", downloader=lambda *a, **k: frame, sleeper=lambda _s: None
+    )
+
+    assert status.available is True
+    assert len(bars) == 1
+    assert bars[0].day == date(2026, 7, 31)
+    assert bars[0].close == 100.0
+
+
+def test_yahoo_download_all_rows_non_finite_returns_unavailable() -> None:
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        {"Close": [float("nan")], "Volume": [1000], "Open": [99.0], "High": [101.0], "Low": [98.0]},
+        index=[pd.Timestamp("2026-08-03")],
+    )
+
+    bars, status = fetch_daily_bars(
+        "QQQ", "1y", downloader=lambda *a, **k: frame, sleeper=lambda _s: None
+    )
+
+    assert bars is None
+    assert status.available is False
+
