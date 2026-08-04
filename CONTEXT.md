@@ -21,7 +21,9 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 
 ## 数据与决策
 
-- Yahoo Finance / `yfinance`：QQQ、板块 ETF、VIX、美债收益率、美元指数与 `^IXIC`。
+- Yahoo Finance / `yfinance`：QQQ、板块 ETF、VIX、美债收益率、美元指数与 `^IXIC`；抓取失败时自动重试 1 次（0.5 秒退避）后才降级。
+- `is_intraday_estimate` 由 `app/services/session.py` 按美东常规交易时段（周一至周五 9:30–16:00，节假日不识别）计算：盘中为"盘中估算"，收盘后为"收盘正式"。
+- 盘中成交量比率按已交易时段占比外推（分母下限 0.05）并标记 `volume_is_estimated`，阈值矩阵与信号拆解注明"盘中估算"；收盘后使用原始成交量，行为不变。
 - CNN Fear & Greed：仅作为可选辅助数据；不可用时不参与判断。
 - BLS 宏观日历：失败时显示不可用，不中断其它模块。
 - `^IXIC`：展示近一年日 OHLC，前端默认 3 个月 K 线；不参与决策。
@@ -54,6 +56,7 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 | 行情聚合、15 分钟调度、快照导出 | `app/scheduler.py` |
 | QQQ 状态规则 | `app/services/decision.py` |
 | 阈值距离与方向矩阵 | `app/services/explanation.py` |
+| 美东交易时段判断 | `app/services/session.py` |
 | RSI、均线、回撤、成交量等指标 | `app/services/indicators.py` |
 | 快照和单模块降级 | `app/services/dashboard.py`、`app/db.py` |
 | 数据源适配 | `app/providers/` |
