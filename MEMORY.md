@@ -19,7 +19,7 @@
 
 ## 已知数据源状态
 
-- CNN Fear & Greed 免费端点可能返回 HTTP 418；此时 `cnn_fear_greed` 标为不可用，前端说明其未纳入本次判断。
+- CNN Fear & Greed 免费端点由 Varnish 反爬保护：无浏览器特征的请求返回 418；已在 `cnn_fear_greed.py` 携带浏览器 UA + Accept + Referer 头（实测 200），仍失败时标为不可用并注明未纳入判断。
 - BLS 日历端点可能返回 HTTP 403；事件区块应显示暂无可用日历，不影响行情刷新。
 - Yahoo Finance 抓取可能短暂失败；`^IXIC` 采用独立快照降级，页面不能将过期数据当成实时数据。
 - 已复现：Yahoo 日线端点在盘后时段可能返回最后一根 bar 的 Close 为 NaN（Open/Volume 正常），会污染 MA200、回撤、决策并使 K 线图报错；提供方层已过滤非有限收盘价/成交量行，改动此处时必须保留该过滤。
