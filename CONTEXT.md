@@ -10,12 +10,16 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 
 ## 运行形态
 
-- 本地：FastAPI 提供 `/api/dashboard` 与静态页面；后台每 15 分钟刷新。
-- 手机：GitHub Pages 部署 `static/` 目录；Actions 在 push 到 `main`、手动运行和工作日定时任务时刷新数据后部署。
+- 本地：FastAPI 提供 `/api/dashboard` 与静态页面；后台调度为双模式（S3）：**日频全量刷新**（工作日美东 16:35 cron，产出正式信号）+ **盘中轻量守护**（每 15 分钟，仅常规交易时段内执行，只追加熔断预警）。
+- 手机：GitHub Pages 部署 `static/` 目录；Actions 在 push 到 `main`、手动运行和工作日每 15 分钟定时时以 `--mode auto` 刷新数据后部署（盘中自动走守护、盘后走全量）。
 
 ### 刷新与数据流
 
-`app/scheduler.py` 调用行情和宏观提供方，生成 market、events、sources、decision、backtest；`app/services/dashboard.py` 负责快照降级；结果写入本地 SQLite 和 `static/data/dashboard.json`。`market.qqq.threshold_matrix` 由 `app/services/explanation.py` 的 `build_threshold_matrix` 生成，包含每行规则的当前值、触发条件、距离、单位、近 5 日方向与可用性。每次刷新会把 decision 快照写入 `state_history` 表，`refresh_once` 组装 payload 顶层 `state_history`（最近 90 天切换事件与当前状态持续时长；decision 为 None 时不生成）。`refresh_once` 还对比相邻快照组装 payload 顶层 `alerts`（边沿事件 + key 去重，低噪声；同一提醒不重复）。FastAPI 从快照/API 提供本地页面，GitHub Actions 重新运行刷新脚本后发布整个 `static/` 目录。
+调度双模式（S3）：`app/scheduler.py` 的 `create_refresh_scheduler` 注册两个 job——`daily_refresh`（CronTrigger 工作日 16:35 America/New_York，跑 `refresh_once` 全量）与 `intraday_guard`（interval 15 分钟，跑 `run_intraday_guard`）。守护流程：非交易时段或无日频快照时 no-op；抓 QQQ 与 ^VIX 报价，由 `app/services/intraday_guard.py` 检测熔断（QQQ 单日跌幅 ≤ -3%；VIX 单日涨幅 ≥ +20% 或绝对值 ≥ 35，阈值测试锁定）；命中时按 `circuit_breaker:{日期}:{类型}` key 去重追加提醒并写 `intraday_watch`（checked_at/价格/涨跌幅/triggered），**绝不重算** decision/indicators/backtest/monitoring，也不写状态历史。`scripts/refresh_dashboard.py` 支持 `--mode auto|daily|guard`（auto = 盘中跑守护、盘后跑全量）；手动 `/api/refresh` 仍为全量刷新（开发工具，不属自动节奏）。
+
+日频全量路径：`app/scheduler.py` 调用行情和宏观提供方，生成 market、events、sources、decision、backtest；`app/services/dashboard.py` 负责快照降级；结果写入本地 SQLite 和 `static/data/dashboard.json`。`market.qqq.threshold_matrix` 由 `app/services/explanation.py` 的 `build_threshold_matrix` 生成，包含每行规则的当前值、触发条件、距离、单位、近 5 日方向与可用性。每次刷新会把 decision 快照写入 `state_history` 表，`refresh_once` 组装 payload 顶层 `state_history`（最近 90 天切换事件与当前状态持续时长；decision 为 None 时不生成）。`refresh_once` 还对比相邻快照组装 payload 顶层 `alerts`（边沿事件 + key 去重，低噪声；同一提醒不重复）。FastAPI 从快照/API 提供本地页面，GitHub Actions 重新运行刷新脚本后发布整个 `static/` 目录。
+
+快照语义（S3）：payload 顶层 `snapshot_kind`（默认 "daily"，旧快照兼容）+ `generated_at` 标识"日频正式快照"；盘中页面展示的是最近一次日频快照 + 守护追加的提醒，不会出现盘中估算类模糊正式信号。
 
 `static/assets/app.js` 只做展示与解释，不能自行计算或覆盖仓位状态。页面中显示的状态、仓位、定投倍率都以 payload 中的 `decision` 为准。
 
@@ -56,7 +60,8 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 - 阈值距离矩阵（`threshold_matrix`）展示在信号拆解区域顶部：5 行固定顺序（RSI(2) 超卖、RSI(6) 超卖、回撤风险、VIX、异常放量），列包含当前值、触发条件、距离、近 5 日方向。已触发的风险行用红色、机会行用绿色；数据不可用时行标为"未参与本次判断"。
 - 状态历史卡片展示最近 90 天切换事件（时间、状态、仓位区间、定投倍率、原因）与当前状态持续时长（刷新次数）；无 `state_history` 字段（旧快照）时隐藏。
 - 情景推演卡片：6 个输入（价格/RSI(2)/RSI(6)/回撤/VIX/成交量比）+ 模拟/重置；结果区强制带"模拟结果，不是当前实时信号"标识，只写入 `#scenario-result`，绝不覆盖正式结论。
-- 顶部提醒条（`alerts`）：五类提醒（状态切换/阈值进入缓冲/进入防御/数据源持续失败/FOMC·CPI·非农临近），带"仅页面内提醒，不推送"注记；空列表或旧快照无该字段时整个横幅隐藏。
+- 顶部提醒条（`alerts`）：六类提醒（状态切换/阈值进入缓冲/进入防御/数据源持续失败/FOMC·CPI·非农临近/熔断预警 circuit_breaker），带"仅页面内提醒，不推送"注记；空列表或旧快照无该字段时整个横幅隐藏。
+- 数据状态区（`#data-status`）：开头展示"日频正式快照 · 生成于 {generated_at}"标注（`snapshot_kind==='daily'` 时）；`intraday_watch` 存在时追加"盘中守护 {checked_at} · 正常/已触发熔断预警"（触发时红色）。
 - 市场宽度佐证卡片：QQQE 相对 QQQ 的 5/20 日强弱与四态标签（集中度偏高/等权同步走强/宽度与指数同步/回调期宽度观察）；纯佐证展示，绝不参与决策；数据不足时标"未参与本次判断"。
 - 体系趋势层卡片（`trend-card`）：多头/空头徽标 + 偏离 MA200 百分比 + 连续低于天数 + 熔断触发 chip；数据不足标"趋势数据不可用（需 200 日历史）"。
 - 结构性风险卡片（`structural-card`）：档位徽标（正常/警示/疑似结构性）+ 总分 + 四维分解（回撤深度/回撤速度/宽度恶化/波动率体制）；均带"参考层"标识。
@@ -71,7 +76,9 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 | 目的 | 主要文件 |
 | --- | --- |
 | API、应用生命周期、静态文件 | `app/main.py` |
-| 行情聚合、15 分钟调度、快照导出 | `app/scheduler.py` |
+| 行情聚合、双模式调度（日频全量 + 盘中守护）、快照导出 | `app/scheduler.py` |
+| 盘中熔断检测与预警（QQQ -3% / VIX +20% 或 ≥35） | `app/services/intraday_guard.py` |
+| 双模式刷新入口（auto/daily/guard） | `scripts/refresh_dashboard.py` |
 | QQQ 状态规则 | `app/services/decision.py` |
 | 本期行动卡（加仓判定、观察条件、完整度） | `app/services/action_card.py` |
 | 状态历史切换与持续时长 | `app/services/state_history.py` |
