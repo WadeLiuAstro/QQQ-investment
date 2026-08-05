@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class StateRule(BaseModel):
@@ -146,6 +146,14 @@ class MonitoringDetails(BaseModel):
     term_ratio: float | None = None
     term_status: str | None = None
     events: list[MacroEvent] = Field(default_factory=list)
+
+    @field_validator("comparisons", mode="before")
+    @classmethod
+    def _coerce_legacy_comparisons(cls, value: object) -> object:
+        # 旧快照中 comparisons 为 dict，新格式为结构化 list；旧格式丢弃以避免反序列化崩溃
+        if isinstance(value, dict):
+            return []
+        return value
 
 
 class MonitoringMetric(BaseModel):

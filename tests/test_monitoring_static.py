@@ -74,3 +74,37 @@ def test_monitoring_does_not_depend_on_hover_only() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
     # 分组按钮使用原生 button（键盘 Enter/Space），而非 hover 触发
     assert 'type="button"' in script
+
+
+# --- 情绪指数仪表盘组件（F&G 五档 + 历史对比）---
+
+
+def test_sentiment_gauge_component_contract() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    for name in (
+        "renderSentimentGauge",
+        "renderSentimentComparisons",
+        "renderMonitoringTableHeader",
+        "fgStatusColor",
+    ):
+        assert f"function {name}" in script
+    assert "FG_BANDS" in script  # 五段色带
+    assert "综合判断：当前美国市场情绪为" in script
+    assert "<svg" in script  # gauge 用 SVG 渲染
+
+
+def test_sentiment_gauge_styles_present() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    for cls in (".fg-gauge", ".fg-needle", ".fg-verdict", ".fg-comparisons", ".fg-comp-card", ".monitoring-row-head"):
+        assert cls in css
+
+
+def test_backend_five_tier_thresholds_match_frontend_bands() -> None:
+    from app.services.monitoring import _cnn_status
+
+    # 与前端 FG_BANDS 区间一致：0-25/25-45/45-55/55-75/75-100
+    assert _cnn_status(10) == "恐惧"
+    assert _cnn_status(30) == "谨慎"
+    assert _cnn_status(50) == "中性"
+    assert _cnn_status(60) == "乐观"
+    assert _cnn_status(90) == "贪婪"
