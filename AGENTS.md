@@ -44,6 +44,13 @@
 - **必须串行**：任务之间存在依赖关系，或会修改相同文件（如 `app/scheduler.py`、`static/assets/app.js`、`static/assets/style.css`）。
 - 每个任务完成后立即运行 `pytest` 确认无回归再进入下一任务；全部完成后做全量回归 + `git diff --check` + 浏览器端到端核验，并按功能分组提交。
 
+## Git 版本管理规范
+
+1. 项目必须使用 Git 进行版本管理，所有功能变更须通过 `git commit` 记录；不得绕过版本控制直接修改线上文件。
+2. 提交信息遵循 conventional commits 风格：`feat:`（新功能）、`fix:`（修复）、`docs:`（文档）、`chore:`（杂项）前缀。
+3. 每个 S 迭代或独立功能完成后必须 `push` 到远端对应分支：开发分支 `qqq-dashboard`，验证后的改动合入主分支 `main`（push 到 main 会触发 GitHub Pages 发布）。
+4. 不得将数据快照文件（`static/data/*.json`、`data/*.sqlite`）或 IDE 缓存（`.qoder/`、`__pycache__/`、`.venv/`）提交到版本库；这些路径由 `.gitignore` 排除，新增生成物或缓存目录时须同步补入。
+
 ## 任务完成后的文档同步（强制）
 
 每次完成一个开发任务（如一个 P0 迭代）并提交后，必须同步以下三份文档，缺一不可：
