@@ -5,13 +5,14 @@ from typing import Callable
 
 import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 from app.config import load_rule_config
 from app.db import SnapshotRepository
-from app.models import DashboardPayload, SourceStatus
+from app.models import DashboardPayload, IntradayWatch, SourceStatus
 from app.providers.cnn_fear_greed import fetch_fear_greed
 from app.providers.macro_calendar import load_macro_events
-from app.providers.yahoo import fetch_daily_bars, fetch_quote
+from app.providers.yahoo import Quote, fetch_daily_bars, fetch_quote
 from app.services.backtest import run_backtest
 from app.services.action_card import build_action_card
 from app.services.alerts import build_alerts
@@ -26,6 +27,7 @@ from app.services.decision import evaluate_decision
 from app.services.explanation import build_threshold_matrix
 from app.services.export import write_dashboard_json
 from app.services.indicators import calculate_indicators
+from app.services.intraday_guard import build_circuit_alerts, detect_circuit_events
 from app.services.monitoring import build_monitoring, mark_monitoring_stale
 from app.services.session import (
     NY_TZ,
@@ -37,6 +39,9 @@ from app.services.session import (
 from app.services.state_history import build_state_history
 from app.services.structural import compute_structural_score
 from app.services.trend import evaluate_trend
+
+# 守护用默认报价抓取（别名便于测试注入，与 fetch_quote 为同一函数）
+fetch_quote_default = fetch_quote
 
 SYMBOLS = {
     "qqq": "QQQ",
@@ -285,16 +290,81 @@ def _market_card(
         ]
     return card
 
+def run_intraday_guard(
+    repository: SnapshotRepository,
+    export_path: Path,
+    fetch_quote: Callable[[str], tuple[Quote | None, SourceStatus]] = fetch_quote_default,
+    now: datetime | None = None,
+) -> DashboardPayload | None:
+    """盘中轻量守护：只追加熔断预警并刷新 intraday_watch。
+
+    绝不重算正式决策，也不写状态历史；非交易时段或无日频快照时 no-op。
+    """
+    if now is None:
+        now = datetime.now(NY_TZ)
+    if not is_regular_session_open(now):
+        return None
+    payload = repository.load_latest_payload()
+    if payload is None:
+        return None
+
+    qqq_quote, _ = fetch_quote("QQQ")
+    vix_quote, _ = fetch_quote("^VIX")
+
+    findings = detect_circuit_events(qqq_quote, vix_quote)
+    new_alerts = build_circuit_alerts(findings, day=now.astimezone(NY_TZ).date())
+
+    # 去重：已有 key 的预警不重复追加
+    alerts = list(payload.alerts or [])
+    existing_keys = {alert.get("key") for alert in alerts}
+    for alert in new_alerts:
+        dumped = alert.model_dump()
+        if dumped["key"] not in existing_keys:
+            alerts.append(dumped)
+            existing_keys.add(dumped["key"])
+
+    watch = IntradayWatch(
+        checked_at=now.astimezone(UTC),
+        qqq_price=qqq_quote.price if qqq_quote else None,
+        qqq_change_pct=_quote_change_pct(qqq_quote),
+        vix=vix_quote.price if vix_quote else None,
+        vix_change_pct=_quote_change_pct(vix_quote),
+        triggered=bool(findings),
+    )
+
+    # 只更新 alerts 与 intraday_watch，其余字段（含 decision/market/snapshot_kind/generated_at）保持原样
+    updated = payload.model_copy(update={"alerts": alerts, "intraday_watch": watch})
+    repository.save_payload(updated)
+    write_dashboard_json(updated, export_path)
+    return updated
+
+
+def _quote_change_pct(quote: Quote | None) -> float | None:
+    """相对昨收的变化百分比；报价或昨收无效时返回 None。"""
+    if quote is None or not quote.previous_close:
+        return None
+    return (quote.price - quote.previous_close) / quote.previous_close * 100
+
+
 def create_refresh_scheduler(
     repository: SnapshotRepository, export_path: Path
 ) -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone="America/New_York")
+    # 日频全量刷新：工作日收盘后 16:35 产出正式信号
     scheduler.add_job(
         refresh_once,
+        trigger=CronTrigger(day_of_week="mon-fri", hour=16, minute=35),
+        args=[repository, export_path],
+        id="daily_refresh",
+        replace_existing=True,
+    )
+    # 盘中轻量守护：每 15 分钟只追加熔断提醒，不重算正式决策
+    scheduler.add_job(
+        run_intraday_guard,
         trigger="interval",
         minutes=15,
         args=[repository, export_path],
-        id="dashboard_refresh",
+        id="intraday_guard",
         replace_existing=True,
     )
     scheduler.start()
