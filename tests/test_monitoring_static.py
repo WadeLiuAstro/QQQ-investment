@@ -108,3 +108,17 @@ def test_backend_five_tier_thresholds_match_frontend_bands() -> None:
     assert _cnn_status(50) == "中性"
     assert _cnn_status(60) == "乐观"
     assert _cnn_status(90) == "贪婪"
+
+
+def test_global_scrollbar_matches_dark_theme() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    # 批注修复：横向滚动条（如 threshold-wrap）使用与暗色主题一致的细滚动条
+    assert "::-webkit-scrollbar" in css
+    assert "scrollbar-width:thin" in css
+
+
+def test_monitoring_vol_rows_have_table_header() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    # VIX/VIX3M/VIX-VIX3M 等资产行上方有表头标注，提升可读性
+    assert "renderMonitoringTableHeader" in script
+    assert "资产" in script and "最新值" in script and "5日方向" in script
