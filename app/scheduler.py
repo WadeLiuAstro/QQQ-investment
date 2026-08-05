@@ -26,6 +26,7 @@ from app.services.decision import evaluate_decision
 from app.services.explanation import build_threshold_matrix
 from app.services.export import write_dashboard_json
 from app.services.indicators import calculate_indicators
+from app.services.monitoring import build_monitoring, mark_monitoring_stale
 from app.services.session import (
     NY_TZ,
     expected_bar_date,
@@ -84,6 +85,7 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
     vix_value = None
     vix_bars = None
     vix3m_bars = None
+    bars_by_key: dict[str, object] = {}
 
     for key, symbol in SYMBOLS.items():
         # 结构评分需要 252 根 52 周窗口，QQQ/QQQE 取 2y 保证足够历史
@@ -91,6 +93,7 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
         bars, status = fetch_daily_bars(symbol, period)
         sources[f"yahoo_{key}"] = status.model_copy(update={"source": f"yahoo_{key}"})
         if bars:
+            bars_by_key[key] = bars
             market[key] = _market_card(
                 symbol, bars, expected=expected_bar_date(datetime.now(NY_TZ))
             )
@@ -175,6 +178,23 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
             indicators, decision, load_rule_config(), sources
         ).model_dump()
 
+    monitoring = None
+    try:
+        monitoring = build_monitoring(
+            generated_at=generated_at,
+            bars_by_key=bars_by_key,
+            market=market,
+            fear_greed=fear_greed,
+            events=events,
+            sources=sources,
+            previous=previous.monitoring if previous else None,
+        )
+    except Exception:
+        if previous is not None and previous.monitoring is not None:
+            monitoring = mark_monitoring_stale(previous.monitoring, generated_at)
+        else:
+            monitoring = None
+
     return build_dashboard_payload(
         generated_at=generated_at,
         sources=sources,
@@ -184,6 +204,7 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
         backtest=backtest,
         action_card=action_card,
         previous=previous,
+        monitoring=monitoring,
     )
 
 
