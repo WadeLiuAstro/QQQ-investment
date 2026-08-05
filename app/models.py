@@ -204,6 +204,15 @@ class MonitoringPayload(BaseModel):
     groups: dict[str, MonitoringGroup]
 
 
+class IntradayWatch(BaseModel):
+    checked_at: datetime
+    qqq_price: float | None = None
+    qqq_change_pct: float | None = None
+    vix: float | None = None
+    vix_change_pct: float | None = None
+    triggered: bool
+
+
 class DashboardPayload(BaseModel):
     generated_at: datetime
     sources: dict[str, SourceStatus]
@@ -215,4 +224,6 @@ class DashboardPayload(BaseModel):
     state_history: dict[str, object] | None = None
     alerts: list[dict[str, object]] | None = None
     monitoring: MonitoringPayload | None = None
+    snapshot_kind: str = "daily"
+    intraday_watch: IntradayWatch | None = None
 
