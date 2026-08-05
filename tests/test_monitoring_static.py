@@ -1,0 +1,76 @@
+"""Task 4/5: monitoring 前端静态契约测试（容器位置/可访问性/渲染函数/响应式）。"""
+
+from pathlib import Path
+
+HTML = Path("static/index.html")
+SCRIPT = Path("static/assets/app.js")
+CSS = Path("static/assets/style.css")
+
+
+# --- Task 4: 容器与手风琴骨架 ---
+
+def test_monitoring_container_follows_core_hero() -> None:
+    html = HTML.read_text(encoding="utf-8")
+    assert html.index('class="grid hero"') < html.index('id="monitoring-section"')
+    assert html.index('id="monitoring-section"') < html.index('id="event-list"')
+    assert 'id="monitoring-summary"' in html
+    assert 'id="monitoring-groups"' in html
+    assert "监控佐证层" in html
+
+
+def test_monitoring_accordion_is_accessible() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "aria-expanded" in script
+    assert "aria-controls" in script
+    assert "sessionStorage" in script
+    assert "monitoring-open-group" in script
+
+
+def test_monitoring_core_renderers_exist() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    for name in (
+        "renderMonitoring",
+        "renderMonitoringSummary",
+        "renderMonitoringGroups",
+        "setOpenMonitoringGroup",
+        "toggleMonitoringGroup",
+    ):
+        assert f"function {name}" in script
+    assert "renderMonitoring(p.monitoring)" in script
+
+
+def test_monitoring_hidden_when_payload_absent() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "hidden=true" in script
+    assert "if(!m)" in script
+
+
+# --- Task 5: 展开可视化渲染函数与样式 ---
+
+def test_monitoring_detail_renderers_exist() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    for name in (
+        "renderSentimentVolatility",
+        "renderCoreBreadth",
+        "renderSectorRotation",
+        "renderMacroDefensive",
+        "renderMonitoringMetricRow",
+    ):
+        assert f"function {name}" in script
+    assert "CNN 七项分因子" in script
+    assert "部分数据缺失" in script
+
+
+def test_monitoring_responsive_and_isolated_styles() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    assert ".monitoring-summary" in css
+    assert ".monitoring-group" in css
+    assert ".monitoring-factor-track" in css
+    assert "@media" in css
+    assert "grid-template-columns:repeat(2" in css
+
+
+def test_monitoring_does_not_depend_on_hover_only() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    # 分组按钮使用原生 button（键盘 Enter/Space），而非 hover 触发
+    assert 'type="button"' in script
