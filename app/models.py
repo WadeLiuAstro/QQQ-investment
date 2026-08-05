@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -112,6 +112,81 @@ class AttributionRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
+MonitoringTone = Literal["positive", "negative", "warning", "neutral", "unavailable"]
+MonitoringDataStatus = Literal["available", "partial", "unavailable"]
+
+
+class MonitoringPoint(BaseModel):
+    observed_at: datetime
+    value: float
+
+
+class MonitoringFactor(BaseModel):
+    key: str
+    label: str
+    score: float
+    rating: str | None = None
+    change: float | None = None
+    tone: MonitoringTone = "neutral"
+
+
+class MonitoringDetails(BaseModel):
+    comparisons: dict[str, float | None] = Field(default_factory=dict)
+    history: list[MonitoringPoint] = Field(default_factory=list)
+    factors: list[MonitoringFactor] = Field(default_factory=list)
+    term_ratio: float | None = None
+    term_status: str | None = None
+    events: list[MacroEvent] = Field(default_factory=list)
+
+
+class MonitoringMetric(BaseModel):
+    key: str
+    label: str
+    current: float | None = None
+    unit: str | None = None
+    change_1d: float | None = None
+    change_unit: str | None = None
+    direction_5d: str | None = None
+    momentum_20d: float | None = None
+    momentum_unit: str | None = None
+    as_of: date | None = None
+    tone: MonitoringTone = "neutral"
+    display_status: str = "数据正常"
+    data_status: MonitoringDataStatus = "available"
+    available: bool = True
+    stale: bool = False
+    note: str | None = None
+
+
+class MonitoringSummary(BaseModel):
+    key: str
+    label: str
+    display_value: str
+    status: str
+    tone: MonitoringTone
+    data_status: MonitoringDataStatus = "available"
+    available: bool = True
+    stale: bool = False
+    as_of: date | None = None
+
+
+class MonitoringGroup(BaseModel):
+    key: str
+    label: str
+    status: str
+    data_status: MonitoringDataStatus = "available"
+    available: bool = True
+    stale: bool = False
+    metrics: list[MonitoringMetric] = Field(default_factory=list)
+    details: MonitoringDetails = Field(default_factory=MonitoringDetails)
+
+
+class MonitoringPayload(BaseModel):
+    generated_at: datetime
+    summary: list[MonitoringSummary]
+    groups: dict[str, MonitoringGroup]
+
+
 class DashboardPayload(BaseModel):
     generated_at: datetime
     sources: dict[str, SourceStatus]
@@ -122,4 +197,5 @@ class DashboardPayload(BaseModel):
     action_card: dict[str, object] | None = None
     state_history: dict[str, object] | None = None
     alerts: list[dict[str, object]] | None = None
+    monitoring: MonitoringPayload | None = None
 
