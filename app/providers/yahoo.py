@@ -5,6 +5,7 @@ from time import sleep
 from typing import Callable
 
 import yfinance as yf
+from yfinance.exceptions import YFRateLimitError
 
 from app.models import SourceStatus
 from app.services.session import is_regular_session_open
@@ -28,7 +29,7 @@ class Quote:
     is_intraday_estimate: bool
 
 
-RETRYABLE = (AttributeError, KeyError, TypeError, ValueError, RuntimeError)
+RETRYABLE = (AttributeError, KeyError, TypeError, ValueError, RuntimeError, YFRateLimitError)
 
 
 def _is_finite(value: object) -> bool:
@@ -79,7 +80,7 @@ def fetch_daily_bars(
         if not bars:
             raise ValueError("no finite close values in market-data response")
         return bars, SourceStatus(source="yahoo", available=True, checked_at=checked_at)
-    except (AttributeError, KeyError, TypeError, ValueError, RuntimeError) as error:
+    except (AttributeError, KeyError, TypeError, ValueError, RuntimeError, YFRateLimitError) as error:
         return (
             None,
             SourceStatus(
@@ -111,7 +112,7 @@ def fetch_quote(
             is_intraday_estimate=market_open,
         )
         return quote, SourceStatus(source="yahoo_quote", available=True, checked_at=checked_at)
-    except (AttributeError, KeyError, TypeError, ValueError, RuntimeError) as error:
+    except (AttributeError, KeyError, TypeError, ValueError, RuntimeError, YFRateLimitError) as error:
         return (
             None,
             SourceStatus(

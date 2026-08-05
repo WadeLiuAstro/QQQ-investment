@@ -1,3 +1,5 @@
+from yfinance.exceptions import YFRateLimitError
+
 from app.providers.yahoo import fetch_daily_bars, fetch_quote
 
 
@@ -14,6 +16,17 @@ def test_yahoo_download_failure_returns_unavailable_status() -> None:
     assert bars is None
     assert status.available is False
     assert status.source == "yahoo"
+
+def test_yahoo_download_rate_limit_degrades_gracefully() -> None:
+    """已复现：Yahoo 限流抛 YFRateLimitError，日线抓取必须降级而非崩溃。"""
+
+    def rate_limited(*_: object, **__: object) -> object:
+        raise YFRateLimitError()
+
+    bars, status = fetch_daily_bars("QQQ", "1y", downloader=rate_limited, sleeper=lambda _s: None)
+
+    assert bars is None
+    assert status.available is False
 
 def test_yahoo_download_requests_unadjusted_closes() -> None:
     captured: dict[str, object] = {}
