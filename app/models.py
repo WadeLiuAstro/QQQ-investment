@@ -130,10 +130,19 @@ class MonitoringFactor(BaseModel):
     tone: MonitoringTone = "neutral"
 
 
+class MonitoringComparison(BaseModel):
+    label: str
+    value: float | None = None
+    status: str | None = None
+    as_of: date | None = None
+
+
 class MonitoringDetails(BaseModel):
-    comparisons: dict[str, float | None] = Field(default_factory=dict)
+    comparisons: list[MonitoringComparison] = Field(default_factory=list)
     history: list[MonitoringPoint] = Field(default_factory=list)
     factors: list[MonitoringFactor] = Field(default_factory=list)
+    gauge_value: float | None = None
+    gauge_label: str | None = None
     term_ratio: float | None = None
     term_status: str | None = None
     events: list[MacroEvent] = Field(default_factory=list)

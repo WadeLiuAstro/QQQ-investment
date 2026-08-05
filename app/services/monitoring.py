@@ -6,11 +6,12 @@
 """
 
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 
 from app.models import (
     MacroEvent,
+    MonitoringComparison,
     MonitoringDetails,
     MonitoringFactor,
     MonitoringGroup,
@@ -398,20 +399,39 @@ def _build_summary(
 # ---------------------------------------------------------------------------
 
 
+def _cnn_comparisons(fear_greed: FearGreedReading) -> list[MonitoringComparison]:
+    """四个历史对比点：按当前观测日期自动回算，不写死具体日期。"""
+    base = fear_greed.observed_at.date()
+    raw = [
+        ("上一交易日", fear_greed.previous_close, base - timedelta(days=1)),
+        ("一周前", fear_greed.previous_week, base - timedelta(days=7)),
+        ("一月前", fear_greed.previous_month, base - timedelta(days=30)),
+        ("一年前", fear_greed.previous_year, base - timedelta(days=365)),
+    ]
+    return [
+        MonitoringComparison(
+            label=label,
+            value=value,
+            status=_cnn_status(value) if value is not None else None,
+            as_of=when,
+        )
+        for label, value, when in raw
+    ]
+
+
 def _sentiment_details(
     fear_greed: FearGreedReading | None,
     bars_by_key: Mapping[str, Sequence[PriceBar] | None],
 ) -> MonitoringDetails:
-    comparisons: dict[str, float | None] = {}
+    comparisons: list[MonitoringComparison] = []
     history: list[MonitoringPoint] = []
     factors: list[MonitoringFactor] = []
+    gauge_value: float | None = None
+    gauge_label: str | None = None
     if fear_greed is not None:
-        comparisons = {
-            "previous_close": fear_greed.previous_close,
-            "previous_week": fear_greed.previous_week,
-            "previous_month": fear_greed.previous_month,
-            "previous_year": fear_greed.previous_year,
-        }
+        gauge_value = float(fear_greed.score)
+        gauge_label = _cnn_status(fear_greed.score)
+        comparisons = _cnn_comparisons(fear_greed)
         history = [
             MonitoringPoint(observed_at=point.observed_at, value=point.score)
             for point in fear_greed.history
@@ -443,6 +463,8 @@ def _sentiment_details(
         comparisons=comparisons,
         history=history,
         factors=factors,
+        gauge_value=gauge_value,
+        gauge_label=gauge_label,
         term_ratio=term_ratio,
         term_status=term_status,
     )
@@ -543,29 +565,28 @@ def _risk_tone(change: float | None) -> str:
 
 
 def _cnn_tone(score: float) -> str:
-    if score <= 25:
+    if score < 25:
         return "negative"
-    if score <= 45:
+    if score < 45:
         return "warning"
-    if score <= 55:
+    if score < 55:
         return "neutral"
-    if score <= 75:
+    if score < 75:
         return "positive"
     return "warning"
 
 
 def _cnn_status(score: float) -> str:
-    if score <= 15:
-        return "极度恐惧"
-    if score <= 25:
+    """F&G 标准五档阈值：0-25 恐惧 / 25-45 谨慎 / 45-55 中性 / 55-75 乐观 / 75-100 贪婪。"""
+    if score < 25:
         return "恐惧"
-    if score <= 45:
-        return "偏恐惧"
-    if score <= 55:
+    if score < 45:
+        return "谨慎"
+    if score < 55:
         return "中性"
-    if score <= 75:
-        return "偏贪婪"
-    return "极度贪婪"
+    if score < 75:
+        return "乐观"
+    return "贪婪"
 
 
 def _fmt(value: float | None) -> str:

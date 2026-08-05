@@ -197,3 +197,61 @@ def test_monitoring_all_unavailable_still_returns_payload() -> None:
     ]
     for group in result.groups.values():
         assert group.data_status in ("partial", "unavailable")
+
+
+# --- CNN 情绪标签五档阈值（F&G 标准）---
+
+
+def _full_reading() -> FearGreedReading:
+    return FearGreedReading(
+        score=58,
+        rating="greed",
+        observed_at=datetime(2026, 8, 5, tzinfo=UTC),
+        previous_close=46.0,
+        previous_week=38.0,
+        previous_month=33.0,
+        previous_year=64.0,
+    )
+
+
+def test_cnn_status_five_tier_thresholds() -> None:
+    from app.services.monitoring import _cnn_status
+
+    assert _cnn_status(0) == "恐惧"
+    assert _cnn_status(24) == "恐惧"
+    assert _cnn_status(25) == "谨慎"
+    assert _cnn_status(44) == "谨慎"
+    assert _cnn_status(45) == "中性"
+    assert _cnn_status(54) == "中性"
+    assert _cnn_status(55) == "乐观"
+    assert _cnn_status(74) == "乐观"
+    assert _cnn_status(75) == "贪婪"
+    assert _cnn_status(100) == "贪婪"
+
+
+def test_cnn_comparisons_structured_with_auto_dates() -> None:
+    inputs = monitoring_inputs(fear_greed=_full_reading())
+    result = build_monitoring(**inputs)
+
+    comps = result.groups["sentiment_volatility"].details.comparisons
+    assert len(comps) == 4
+    assert [c.label for c in comps] == ["上一交易日", "一周前", "一月前", "一年前"]
+
+    first = comps[0]
+    assert first.value == 46.0
+    assert first.status == "中性"  # 46 ∈ [45,55)
+    assert first.as_of == date(2026, 8, 4)  # observed 8/5 往前 1 天
+
+    year = comps[3]
+    assert year.value == 64.0
+    assert year.status == "乐观"  # 64 ∈ [55,75)
+    assert year.as_of == date(2025, 8, 5)  # 往前 365 天
+
+
+def test_cnn_gauge_carries_current_score_and_label() -> None:
+    inputs = monitoring_inputs(fear_greed=_full_reading())
+    result = build_monitoring(**inputs)
+
+    details = result.groups["sentiment_volatility"].details
+    assert details.gauge_value == 58
+    assert details.gauge_label == "乐观"
