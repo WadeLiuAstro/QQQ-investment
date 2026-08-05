@@ -26,6 +26,7 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 - Yahoo Finance / `yfinance`：QQQ、QQQE（等权）、板块 ETF、VIX、^VIX3M、美债收益率、美元指数与 `^IXIC`；QQQ/QQQE 取 2y 周期（结构评分需 252 根窗口），其余取 1y；抓取失败时自动重试 1 次（0.5 秒退避）后才降级；非有限（NaN）的收盘价/成交量行会被过滤，避免污染指标与 K 线。
 - 体系参考层（S1）：`market.qqq.trend` 为 MA200 趋势状态机（多头=收盘价≥MA200 收复即算；空头=连续 3 日低于且偏离≥1%；前轮为空头且未收复时保持空头；单月回撤≥8% 触发 `circuit_breaker`），`previous_regime` 从上轮快照读取。`market.qqq.structural_risk` 为四维结构评分（回撤深度 30/速度 20/宽度 25/波动率 25），档位：<40 normal、40–69 watch（加仓减半）、≥70 critical（冻结加仓）；^VIX3M 缺失时仅失去期限倒挂分（10 分），评分仍可用。二者均为参考层，不改变五档正式决策。
 - 归因闸门（S2）：`market.qqq.attribution` 含 `evidence`（大跌检测：单日 ≤ -2% 或回撤进入新 5% 档；证据集：当日跌幅/回撤深度与速度/VIX 与 5 日跳升/宽度 RS/3 天内临近事件）、`gate`（open 放行 / half 减半 / frozen 冻结；触发未拍板=half+48h 倒计时，拍板三分类：liquidity_panic→open、structural→frozen、watch→half+48h 复核）、`decision`。拍板持久化在 SQLite `attribution_decisions` 表，`decision_log` 表记录 signal/attribution/execution 三类日志。API：`POST /api/attribution`（拍板，本地服务器）、`GET /api/attribution`、`GET /api/decision-log`；GitHub Pages 静态站无写能力，前端提供"导出 JSON（静态站降级）"下载拍板文件，本地运行才可实时提交。
+- 监控佐证层（monitoring）：`DashboardPayload.monitoring`（可选顶层字段，旧快照无此字段时前端隐藏）含 `summary`（四张固定摘要：sentiment/core_trend/breadth/volatility）与 `groups`（四个固定分组：sentiment_volatility/core_breadth/sector_rotation/macro_defensive）。统一口径：latest + change_1d + direction_5d + momentum_20d + as_of + available/stale。由 `app/services/monitoring.py` 纯函数组装，在正式决策计算**之后**附加，绝不传入 `evaluate_decision()`。CNN 七因子与历史为可选增量字段，缺失只降级对应子区不影响总分；整体构建失败时 `mark_monitoring_stale` 复用上一快照并标 stale。
 - `is_intraday_estimate` 由 `app/services/session.py` 按美东常规交易时段（周一至周五 9:30–16:00，节假日不识别）计算：盘中为"盘中估算"，收盘后为"收盘正式"。
 - 每个市场卡带 `stale_lag`（最新 bar 距最近已收盘交易日的滞后交易日数，由 `expected_bar_date` 判定基准）；滞后 ≥1 个交易日时前端标注"数据滞后 N 个交易日"。已知根因：Yahoo 盘后对当日 bar 返回 Close=NaN 被过滤后数据停留上一交易日，标注随数据恢复自动消失。
 - 盘中成交量比率按已交易时段占比外推（分母下限 0.05）并标记 `volume_is_estimated`，阈值矩阵与信号拆解注明"盘中估算"；收盘后使用原始成交量，行为不变。
@@ -61,6 +62,7 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 - 结构性风险卡片（`structural-card`）：档位徽标（正常/警示/疑似结构性）+ 总分 + 四维分解（回撤深度/回撤速度/宽度恶化/波动率体制）；均带"参考层"标识。
 - 大跌归因卡片（`attribution-card`）：闸门徽标（放行/减半/冻结）+ 证据集（当日跌幅/回撤/VIX+跳升/宽度 RS/临近事件）+ 拍板截止或复核截止倒计时 + 三选一拍板表单（分类下拉 + 理由必填）；已拍板后显示结论并隐藏表单；提交失败（静态站）提示导出 JSON 走手动流程。
 - 决策日志卡片（`decision-log-card`）：时间轴展示 signal/attribution/execution 三类日志；本地服务拉取 `/api/decision-log`，静态站或空库时显示对应空态文案。
+- 监控指标增强区（`#monitoring-section`，B 位：QQQ/宏观 hero 之后、事件卡之前）：顶部四张摘要卡（CNN 市场情绪/QQQ 核心趋势/市场宽度/波动率体制）+ 四个可点击分组手风琴（情绪与波动/核心趋势与宽度/板块轮动/宏观与防御）。互斥展开（同时最多一组），分组按钮用原生 `<button>` + `aria-expanded`/`aria-controls` 支持键盘；展开状态写 `sessionStorage`（key `monitoring-open-group`），不入库不上传。`payload.monitoring` 缺失时整个 section 隐藏。只做事实陈述（上行/下行/平稳/期限倒挂等），不含买入/卖出/加仓/减仓字样；VIX 上升用红（风险升温），CNN 按恐惧—贪婪区间着色。桌面摘要四列、手机 2×2。
 - ^IXIC K 线为日K（每根=1 交易日，`interval=1d`），界面显式标注"日K · 每根=1 交易日"；1月/3月/6月/1年为时间范围切换而非粒度切换。
 
 ## 关键文件地图
@@ -77,6 +79,7 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 | MA200 趋势状态机 + 熔断 | `app/services/trend.py` |
 | 结构性风险四维评分 | `app/services/structural.py` |
 | 大跌检测 + 归因闸门 | `app/services/attribution.py` |
+| 监控指标增强区（佐证层） | `app/services/monitoring.py` |
 | 阈值距离与方向矩阵 | `app/services/explanation.py` |
 | 美东交易时段判断 | `app/services/session.py` |
 | RSI、均线、回撤、成交量等指标 | `app/services/indicators.py` |

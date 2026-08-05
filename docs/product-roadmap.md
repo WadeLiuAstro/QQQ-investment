@@ -53,7 +53,20 @@
 - 前端：大跌证据集卡片 + 三选一拍板表单（理由必填）+ 拍板/复核截止倒计时 + 决策日志时间轴
 - **架构决策（用户拍板，C 方案）**：本地服务器写库为主，GitHub Pages 提供"导出 JSON（静态站降级）"下载拍板文件
 - 验收：全量 186 个测试通过（新增 28 个）；真实快照 + 浏览器端到端核验（提交拍板→落库→闸门更新→决策日志展示）
-- 提交：待提交
+- 提交：`eed3a31`
+
+### 监控指标增强区（监控佐证层） ✅ 已完成（2026-08-05）
+
+依据 `docs/superpowers/specs/2026-08-05-monitoring-indicators-design.md` 与 `plans/2026-08-05-monitoring-indicators-implementation.md`。属于监控佐证层，**不修改五档决策、仓位范围、定投倍率或规则优先级**。
+
+交付记录（6 个 TDD Task）：
+- Task 1：`app/providers/cnn_fear_greed.py` 容错解析 CNN 历史序列与七项分因子（`FearGreedPoint`/`FearGreedFactor`），保持原总分行为不变
+- Task 2：`app/services/monitoring.py` 纯函数服务 + `app/models.py` 的 `MonitoringPayload` 系列模型（四组固定、统一 latest/1d/5d/20d 口径、`mark_monitoring_stale` 降级）
+- Task 3：`app/scheduler.py` 保留 `bars_by_key` 并在正式决策计算后附加 monitoring；`app/services/dashboard.py` 透传 + 快照降级
+- Task 4：`static/index.html` B 位监控区容器 + `app.js` 摘要四卡、互斥可访问手风琴（`aria-expanded`/`sessionStorage`）
+- Task 5：`app.js` 四组详情渲染（CNN 仪表/七因子条/历史对比、资产行、VIX/VIX3M 期限）+ `style.css` 响应式（桌面四列→手机 2×2）
+- 验收：全量 214 个测试通过（基线 186 + 新增 28）；真实快照 CNN 返回 7 因子 + 251 历史点；浏览器核验摘要/手风琴互斥/详情渲染，无 console 错误
+- 提交：`f75f1d0`、`b797a63`、`af7c5a2`、`cc6b551`、`4be3f07`
 
 ### S3 刷新架构重构（体系的"节奏"）
 
