@@ -19,7 +19,7 @@
 - 市场宽度佐证（`app/services/breadth.py`）：P2 佐证层第一个指标，QQQE vs QQQ 相对强弱四态标签（集中度偏高/等权同步走强/宽度与指数同步/回调期宽度观察），RS 阈值 ±1 个百分点写入测试；只作展示绝不进入决策，调整标签语义须用户授权。
 - 体系参考层（S1，`app/services/trend.py` + `app/services/structural.py`）：`market.qqq.trend` 为 MA200 趋势状态机（多头=收盘价≥MA200 收复即算；空头=连续 3 日低于且偏离≥1%；前轮空头未收复时保持；单月回撤≥8% 触发熔断），`market.qqq.structural_risk` 为四维结构评分（深度 30/速度 20/宽度 25/波动率 25，档位 <40 normal、40–69 watch 加仓减半、≥70 critical 冻结加仓）。二者均为参考层，不改变五档正式决策；规则语义来自 `docs/investment-system.md`，调整须用户授权。
 - 归因拍板机制（S2，`app/services/attribution.py` + API）：大跌触发（单日 ≤ -2% 或回撤跨新 5% 档）后机器举证、人拍板三分类（流动性恐慌→放行/结构性→冻结/待观察→减半+48h 复核），超时未拍板=减半执行；闸门写入 `market.qqq.attribution`，拍板落 SQLite `attribution_decisions`，`decision_log` 记录 signal/attribution/execution；**架构决策（用户拍板）**：GitHub Pages 无写能力，采用本地服务器写库为主 + 前端"导出 JSON 手动提交"降级（C 方案）。
-- 监控指标增强区（monitoring，佐证层）：用户持久偏好——只复用现有资产与数据源（不新增 symbol/外部源/JS 包），统一"最新值+1日变化+5日方向+20日趋势"口径，四固定分组（情绪波动/趋势宽度/板块轮动/宏观防御），CNN 七因子与历史为可选增量；**绝不与五档决策、仓位、定投倍率耦合**，只做事实陈述不含买卖建议。CNN 情绪指数用 SVG 仪表盘三层结构（仪表盘 gauge + 综合判断横幅 + 4 张历史对比卡），情绪标签按 F&G 五档阈值（后端数据逻辑 `_cnn_status`），历史对比日期按观测日自动回算不写死；监控区资产行带列表头，全局滚动条统一深色细条与主题一致。
+- 监控指标增强区（monitoring，佐证层）：用户持久偏好——只复用现有资产与数据源（不新增 symbol/外部源/JS 包），统一"最新值+1日变化+5日方向+20日趋势"口径，四固定分组（情绪波动/趋势宽度/板块轮动/宏观防御），CNN 七因子与历史为可选增量；**绝不与五档决策、仓位、定投倍率耦合**，只做事实陈述不含买卖建议。CNN 情绪指数用 SVG 仪表盘三层结构（仪表盘 gauge + 综合判断横幅 + 4 张历史对比卡），情绪标签按 F&G 五档阈值（后端数据逻辑 `_cnn_status`），历史对比日期按观测日自动回算不写死；监控区资产行带列表头，全局滚动条统一深色细条与主题一致。情绪子区在对比卡与七因子之间含"近一年市场情绪走势"图（复用 Lightweight Charts，不新增 JS 包；后端 `_recent_history` 只保留近 366 天并升序；分档线 25/45/55/75 与 FG_BANDS/`_cnn_status` 同源，一致性由静态测试锁定；历史缺失显示"暂无历史走势数据"不伪造）；gauge 中心数值在表盘下方正常流布局（用户批注修复：绝对定位会与指针重叠）。
 
 ## 已知数据源状态
 
@@ -32,6 +32,7 @@
 - S2 实现经验：回撤档位判定用 `ceil(dd/5)` 并先 round 到两位小数，否则浮点误差会把 -10.0% 抬到 -1 档造成误触发；evidence.day 经 JSON 序列化后是字符串，`attach_attribution_gate` 需 `date.fromisoformat` 还原。
 - monitoring 实现经验：CNN 端点真实返回七因子与约 251 点历史（可选字段），解析时对 `[ts,score]` 与 `{x,y}` 两种历史形状容错；monitoring 构建放在正式决策之后，单组失败用 try 隔离只降级该组；`mark_monitoring_stale` 保留原 `as_of` 不伪造新数据。
 - 情绪仪表盘实现经验：`comparisons` 从 dict 改结构化 list 时需 `field_validator` 兼容旧快照；五档阈值 `_cnn_status` 与前端 FG_BANDS 色带区间须一致（有测试锁定）；历史对比日期用 `observed_at - timedelta(days=1/7/30/365)` 回算。
+- 情绪走势图实现经验：手风琴分组每次展开都重建 detail DOM，Lightweight Charts 实例必须先 `remove()` 再重建避免泄漏；Y 轴固定 0–100 用 `autoscaleInfoProvider` 返回固定 priceRange；折线 time 用 `observed_at.slice(0,10)` 业务日格式；悬停读数以读出行（非 tooltip）呈现，移动端点按同样生效，不依赖悬停。
 - 数据准确性约定：估算语义按美东交易时段判断（盘中估算/收盘正式）；盘中成交量按已交易时段占比外推并显式标注"盘中估算"；Yahoo 抓取失败先重试 1 次再降级。已知遗留问题：Yahoo 未复权收盘价在除息日会产生人为跳空，轻微影响 RSI/回撤；复权价改造需先回测对比并另行确认后再做。
 
 ### 降级原则

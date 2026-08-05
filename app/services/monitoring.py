@@ -419,6 +419,20 @@ def _cnn_comparisons(fear_greed: FearGreedReading) -> list[MonitoringComparison]
     ]
 
 
+def _recent_history(fear_greed: FearGreedReading) -> list[MonitoringPoint]:
+    """近一年情绪走势数据：只保留最近 366 天内的点，并按时间升序。"""
+    points = list(fear_greed.history)
+    if not points:
+        return []
+    latest = max(point.observed_at for point in points)
+    cutoff = latest - timedelta(days=366)
+    return [
+        MonitoringPoint(observed_at=point.observed_at, value=point.score)
+        for point in sorted(points, key=lambda p: p.observed_at)
+        if point.observed_at >= cutoff
+    ]
+
+
 def _sentiment_details(
     fear_greed: FearGreedReading | None,
     bars_by_key: Mapping[str, Sequence[PriceBar] | None],
@@ -432,10 +446,7 @@ def _sentiment_details(
         gauge_value = float(fear_greed.score)
         gauge_label = _cnn_status(fear_greed.score)
         comparisons = _cnn_comparisons(fear_greed)
-        history = [
-            MonitoringPoint(observed_at=point.observed_at, value=point.score)
-            for point in fear_greed.history
-        ]
+        history = _recent_history(fear_greed)
         factors = [
             MonitoringFactor(
                 key=factor.key, label=factor.label, score=factor.score, rating=factor.rating

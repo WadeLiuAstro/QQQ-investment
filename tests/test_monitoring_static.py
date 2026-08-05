@@ -122,3 +122,52 @@ def test_monitoring_vol_rows_have_table_header() -> None:
     # VIX/VIX3M/VIX-VIX3M 等资产行上方有表头标注，提升可读性
     assert "renderMonitoringTableHeader" in script
     assert "资产" in script and "最新值" in script and "5日方向" in script
+
+
+# --- 近一年市场情绪走势图 ---
+
+
+def test_sentiment_history_chart_contract() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "function renderSentimentHistoryChart" in script
+    assert "近一年市场情绪走势" in script
+    # 降级文案：CNN 历史不可用时明确提示，不伪造数据
+    assert "暂无历史走势数据" in script
+    # 数据来自 monitoring details.history（CNN graphdata），悬停展示日期/分数/标签
+    assert "d.history" in script
+    assert "fg-history-readout" in script
+
+
+def test_sentiment_history_chart_styles_present() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    assert ".fg-history" in css
+    assert ".fg-history-readout" in css
+
+
+def test_sentiment_history_chart_inserted_before_factors() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    # 走势图位于四张情绪对比卡之后、CNN 七项分因子之前
+    render = script[script.index("function renderSentimentVolatility"):]
+    comps_pos = render.index("compsHtml")
+    history_pos = render.index("renderSentimentHistoryChart(")
+    factors_pos = render.index("factorHtml")
+    assert comps_pos < history_pos < factors_pos
+
+
+def test_frontend_fg_bands_match_backend_five_tiers() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    # 走势图分档线与 gauge 色带共用 FG_BANDS，区间必须与后端 _cnn_status 一致
+    for boundary in (
+        "{from:0,to:25",
+        "{from:25,to:45",
+        "{from:45,to:55",
+        "{from:55,to:75",
+        "{from:75,to:100",
+    ):
+        assert boundary in script, f"FG_BANDS 缺少与后端一致的分档 {boundary}"
+
+
+def test_sentiment_gauge_center_text_does_not_overlap_needle() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    # 批注修复：中心数值不再绝对定位叠在指针/表盘轴上，改为表盘下方正常流布局
+    assert ".fg-gauge-center{position:absolute" not in css.replace(" ", "")

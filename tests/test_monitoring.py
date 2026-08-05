@@ -11,6 +11,7 @@ from app.providers.cnn_fear_greed import (
 from app.providers.yahoo import PriceBar
 from app.services.monitoring import (
     DIRECTION_EPSILON,
+    _sentiment_details,
     build_market_metric,
     build_monitoring,
 )
@@ -255,3 +256,35 @@ def test_cnn_gauge_carries_current_score_and_label() -> None:
     details = result.groups["sentiment_volatility"].details
     assert details.gauge_value == 58
     assert details.gauge_label == "乐观"
+
+
+# --- 近一年情绪走势：历史序列窗口与降级 ---
+
+
+def test_sentiment_history_limited_to_last_year_and_sorted() -> None:
+    latest = datetime(2026, 8, 4, tzinfo=UTC)
+    reading = FearGreedReading(
+        score=55,
+        rating="greed",
+        observed_at=latest,
+        history=(
+            FearGreedPoint(latest, 55.0),  # 最新
+            FearGreedPoint(latest - timedelta(days=100), 40.0),
+            FearGreedPoint(latest - timedelta(days=400), 20.0),  # 超出近一年
+            FearGreedPoint(latest - timedelta(days=300), 30.0),  # 乱序输入
+        ),
+    )
+
+    details = _sentiment_details(reading, {})
+
+    assert [point.value for point in details.history] == [30.0, 40.0, 55.0]
+    assert all(
+        point.observed_at >= latest - timedelta(days=366)
+        for point in details.history
+    )
+
+
+def test_sentiment_history_empty_when_cnn_unavailable() -> None:
+    details = _sentiment_details(None, {})
+    assert details.history == []
+    assert details.gauge_value is None
