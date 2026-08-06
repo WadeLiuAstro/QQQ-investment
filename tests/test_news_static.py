@@ -56,12 +56,39 @@ def test_news_external_fields_escaped() -> None:
     assert ".replace(/>/g,'&gt;')" in script
 
 
-def test_news_event_and_headline_row_structure() -> None:
+def test_news_headline_row_structure() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
-    for cls in ("news-event", "ne-title", "ne-date", "ne-days", "news-item", "ni-time", "ni-src", "ni-title", "ni-link"):
+    for cls in ("news-item", "ni-time", "ni-src", "ni-title", "ni-link"):
         assert cls in script
-    assert "临近 · " in script
-    assert " 天后" in script
+
+
+# --- Task B：月历视图契约 ---
+
+def test_news_calendar_contract() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "function renderNewsCalendar" in script
+    assert "下月事件" in script
+    assert "点按事件日查看详情" in script
+    assert "news-cal-readout" in script
+    assert "aria-label" in script
+    # 周一起始表头
+    assert "一 二 三 四 五 六 日" in script
+
+
+def test_news_card_no_longer_renders_event_cards() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    render = script[script.index("function renderNewsCard"):script.index("function renderAttribution")]
+    # renderNewsCard 内不再渲染旧事件卡结构
+    assert "news-event" not in render
+    assert "renderNewsCalendar(upcoming)" in render
+    # 降级路径保留
+    assert "暂无排期事件" in render
+
+
+def test_news_calendar_styles() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    for cls in (".news-calendar", ".nc-day.near", ".nc-day.has-event", ".nc-day:focus-visible", ".nc-next-month", "#news-cal-readout"):
+        assert cls in css, f"style.css 缺少 {cls}"
 
 
 # --- 样式契约 ---
