@@ -63,18 +63,70 @@ def load_macro_events(
     )
 
 
+# Fed 日历页面新结构（2025 起改版）：
+# - 每个年份一个分段，标题为 <h4><a id="数字">YYYY FOMC Meetings</a></h4>
+# - 会议块内月份在 fomc-meeting__month 的 <strong> 中，
+#   日期在其后独立的 fomc-meeting__date 块中，形如 "15-16" 或 "15-16*"
+# - 会议日期语义取范围的结束日（如 15-16 取 16），决议公布时间为结束日 14:00（纽约时间）
+_FOMC_YEAR_HEADER_PATTERN = re.compile(
+    r'<h4>\s*<a id="\d+">(20\d\d) FOMC Meetings</a>\s*</h4>'
+)
+_FOMC_MONTH_PATTERN = re.compile(
+    r"<strong>(January|February|March|April|May|June|July|August|"
+    r"September|October|November|December)</strong>"
+)
+_FOMC_DATE_PATTERN = re.compile(
+    r"fomc-meeting__date[^>]*>\s*(\d{1,2})-(\d{1,2})\*?\s*<"
+)
+
+
 def parse_fomc_events(html: str) -> list[MacroEvent]:
+    # 按年份标题位置切分段落：会议归入"其后最近的下一个年份标题之前"的区间，
+    # 容忍年份标题与会议块之间的 HTML 噪声，避免跨年误配
+    year_sections = [
+        (int(match.group(1)), match.start())
+        for match in _FOMC_YEAR_HEADER_PATTERN.finditer(html)
+    ]
+    month_matches = list(_FOMC_MONTH_PATTERN.finditer(html))
     events: list[MacroEvent] = []
-    for match in re.finditer(
-        r'fomc-meeting__date[^>]*>\s*([A-Za-z]+)\s+\d{1,2}-(\d{1,2}),\s*(\d{4})',
-        html,
-    ):
-        month, end_day, year = match.groups()
-        event_date = datetime.strptime(
-            f"{month} {end_day}, {year}", "%B %d, %Y"
-        ).date()
+    for index, month_match in enumerate(month_matches):
+        year = _year_for_position(year_sections, month_match.start())
+        if year is None:
+            # 不在任何年份段内的月份无法归属，跳过
+            continue
+        # 只在本会议块到下一个月份块之间找最近的日期块，防止串块误配
+        search_end = (
+            month_matches[index + 1].start()
+            if index + 1 < len(month_matches)
+            else len(html)
+        )
+        date_match = _FOMC_DATE_PATTERN.search(html, month_match.end(), search_end)
+        if date_match is None:
+            # 畸形片段（有月份无日期块）跳过，不抛异常
+            continue
+        end_day = int(date_match.group(2))
+        try:
+            event_date = datetime.strptime(
+                f"{month_match.group(1)} {end_day}, {year}", "%B %d, %Y"
+            ).date()
+        except ValueError:
+            # 单个会议日期非法（如 2 月 30 日）跳过，整体不抛异常
+            continue
         events.append(_event("fomc", "FOMC 利率决议", event_date, 14, 0, "federal_reserve"))
     return events
+
+
+def _year_for_position(
+    year_sections: list[tuple[int, int]], position: int
+) -> int | None:
+    # 返回该位置所属的年份：最后一个起始位置不超过 position 的年份段
+    year = None
+    for section_year, section_start in year_sections:
+        if section_start <= position:
+            year = section_year
+        else:
+            break
+    return year
 
 
 def parse_bls_events(html: str) -> list[MacroEvent]:
