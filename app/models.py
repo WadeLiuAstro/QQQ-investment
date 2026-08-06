@@ -213,6 +213,33 @@ class IntradayWatch(BaseModel):
     triggered: bool
 
 
+class NewsHeadline(BaseModel):
+    """消息面卡片中的一条头条。"""
+
+    title: str
+    url: str
+    source: str
+    published_at: datetime
+
+
+class NewsUpcoming(BaseModel):
+    """消息面卡片中的一条预期事件。"""
+
+    kind: str
+    title: str
+    event_at: datetime
+    days_until: int
+
+
+class NewsBoard(BaseModel):
+    """消息面卡片整体结构：预期事件 + 头条混排，支持降级。"""
+
+    available: bool
+    news_source_available: bool
+    upcoming: list[NewsUpcoming] = Field(default_factory=list)
+    headlines: list[NewsHeadline] = Field(default_factory=list)
+
+
 class DashboardPayload(BaseModel):
     generated_at: datetime
     sources: dict[str, SourceStatus]
@@ -226,4 +253,5 @@ class DashboardPayload(BaseModel):
     monitoring: MonitoringPayload | None = None
     snapshot_kind: str = "daily"
     intraday_watch: IntradayWatch | None = None
+    news: NewsBoard | None = None
 
