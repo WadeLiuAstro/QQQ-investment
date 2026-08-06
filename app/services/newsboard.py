@@ -14,8 +14,8 @@ from app.providers.news_rss import NewsItem
 HEADLINE_WINDOW_DAYS = 3
 # 头条条数上限
 HEADLINE_LIMIT = 12
-# 预期事件条数上限（最近 3 个未来事件）
-UPCOMING_LIMIT = 3
+# 预期事件条数上限：事件抓取窗口放宽到 35 天后，35 天窗口内事件数上限
+UPCOMING_LIMIT = 10
 
 
 def build_newsboard(
