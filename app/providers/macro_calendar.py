@@ -17,30 +17,50 @@ def load_macro_events(
     end: date,
 ) -> tuple[list[MacroEvent] | None, SourceStatus]:
     checked_at = datetime.now(UTC)
+    # FOMC 与 BLS 独立抓取，任一失败只降级该源，不牵连另一源
+    fomc_events: list[MacroEvent] | None = None
+    bls_events: list[MacroEvent] | None = None
+    fomc_error: str | None = None
+    bls_error: str | None = None
     try:
         fomc_response = client.get(FOMC_URL, timeout=8.0)
         fomc_response.raise_for_status()
+        fomc_events = parse_fomc_events(fomc_response.text)
+    except (httpx.HTTPError, TypeError, ValueError) as error:
+        # 单源失败只记录错误信息，不抛出
+        fomc_error = str(error)[:200]
+    try:
         bls_response = client.get(BLS_URL, timeout=8.0)
         bls_response.raise_for_status()
-        events = [
-            *parse_fomc_events(fomc_response.text),
-            *parse_bls_events(bls_response.text),
-        ]
-        events = [event for event in events if start <= event.event_at.date() <= end]
-        events.sort(key=lambda event: event.event_at)
-        return events, SourceStatus(
-            source="macro_calendar", available=True, checked_at=checked_at
-        )
+        bls_events = parse_bls_events(bls_response.text)
     except (httpx.HTTPError, TypeError, ValueError) as error:
+        bls_error = str(error)[:200]
+    if fomc_events is None and bls_events is None:
+        # 两源都失败才整体不可用
         return (
             None,
             SourceStatus(
                 source="macro_calendar",
                 available=False,
                 checked_at=checked_at,
-                message=str(error),
+                message=f"FOMC: {fomc_error}; BLS: {bls_error}",
             ),
         )
+    events = [*(fomc_events or []), *(bls_events or [])]
+    events = [event for event in events if start <= event.event_at.date() <= end]
+    events.sort(key=lambda event: event.event_at)
+    # 部分成功时 message 注明失败源与原因，截断到 200 字符内
+    message = None
+    if fomc_error is not None:
+        message = f"FOMC 不可用: {fomc_error}"[:200]
+    if bls_error is not None:
+        message = f"BLS 不可用: {bls_error}"[:200]
+    return events, SourceStatus(
+        source="macro_calendar",
+        available=True,
+        checked_at=checked_at,
+        message=message,
+    )
 
 
 def parse_fomc_events(html: str) -> list[MacroEvent]:
