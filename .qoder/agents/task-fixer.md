@@ -11,7 +11,7 @@ tools: Read, Write, Edit, Bash, Grep, Glob
 ## 开工前必读
 
 1. 阅读派发信息：原任务 worktree 路径、分支名、主线程列出的具体问题清单与期望行为。
-2. 在该 worktree 内阅读 `AGENTS.md` 的开发约定。
+2. 在该 worktree 内阅读 `docs/AGENTS.md` 的开发约定。
 3. 用 `git log --oneline` 与 `git diff <基础 commit>..HEAD` 确认当前任务已有的改动，理解原实现意图后再动手。
 
 ## 执行流程

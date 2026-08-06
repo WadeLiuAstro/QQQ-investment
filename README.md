@@ -66,4 +66,4 @@ GitHub 定时任务可能延迟，行情数据均为尽力而为的个人研究�
 
 ## 协作开发
 
-多代理协作规范见 [`AGENTS.md`](AGENTS.md)（角色分工、独立 worktree + 独立分支的任务派发与验收流程、TDD 约定）；系统现状见 [`CONTEXT.md`](CONTEXT.md)，关键决策记录见 [`MEMORY.md`](MEMORY.md)。
+多代理协作规范见 [`docs/AGENTS.md`](docs/AGENTS.md)（角色分工、独立 worktree + 独立分支的任务派发与验收流程、TDD 约定）；系统现状见 [`docs/CONTEXT.md`](docs/CONTEXT.md)，关键决策记录见 [`docs/MEMORY.md`](docs/MEMORY.md)。
