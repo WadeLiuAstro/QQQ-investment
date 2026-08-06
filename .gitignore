@@ -9,4 +9,5 @@ data/*.json
 static/data/*.json
 data/*.sqlite
 screenshot-*.png
-.qoder/
+.qoder/*
+!.qoder/agents/
