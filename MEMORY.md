@@ -31,7 +31,9 @@
 - 已复现：Yahoo 日线端点在盘后时段可能返回最后一根 bar 的 Close 为 NaN（Open/Volume 正常），会污染 MA200、回撤、决策并使 K 线图报错；提供方层已过滤非有限收盘价/成交量行，改动此处时必须保留该过滤。
 - 时效性约定：所有市场卡带 `stale_lag`（基准=最近已收盘交易日，由 `expected_bar_date` 判定，16:00 后当天算已收盘）；滞后 ≥1 交易日页面显式标注。注意：Yahoo NaN 过滤会让数据停留在上一交易日（表现为滞后 1 个交易日），属数据源暂时现象，标注随数据恢复自动消失，不要为此伪造收盘价。
 - 已复现：Yahoo 高频抓取会触发限流（`yfinance.exceptions.YFRateLimitError`，继承自 Exception 而非 RuntimeError）；S3 验收时旧代码 15 分钟全量刷新叠加手动刷新导致整组 429，且未捕获异常会使整个刷新崩溃。已在 `yahoo.py` 的 RETRYABLE 与两个抓取函数的 except 中加入该异常（降级为不可用）；验证真实快照时避免短时间重复刷新，限流后需等待数分钟冷却。
-- CNBC RSS 双源已验证（2026-08-06 实测 200）：宏观 Economy（id=20910258）与 US Top News（id=100003114），标准 RSS 2.0、无反爬拦截（仍携带头防御）；Yahoo Finance RSS 已 404 不可用。RSS 无 `news` 回退机制：日频刷新时 RSS 全挂则当次快照无头条（不沿用旧数据），属预期降级行为。BLS 日历 403 时消息面 upcoming 为空但头条不受影响（已实测验证）。
+- 已复现：BLS 排期页（bls.gov/schedule/news_release/）自 2026-08-06 起被反爬全面封锁（携浏览器头仍 403，与 CNN 不同，加头无效），CPI/非农排期暂不可用；BLS 官方 API（api.bls.gov，免 key）可访问但只提供历史序列不提供未来发布排期，无法直接替代日历。`load_macro_events` 已改为部分降级：FOMC 与 BLS 独立抓取，谁成功用谁，部分失败时 available=True 且 message 注明失败源。
+- 已复现：Fed FOMC 日历页已改版——年份在 `<h4><a id="数字">YYYY FOMC Meetings</a></h4>` 分段标题，月份在带 `fomc-meeting__month` 类名的 `<strong>` 块，日期在其后独立的 `fomc-meeting__date` 块（形如 15-16*）；旧正则（假设月日年同块）已完全失配静默返回 0，曾被 BLS 事件掩盖。解析已适配新结构：按年份标题切段防跨年误配，月份锚定类名防干扰，会议日期取范围结束日（决议公布日）；Fed 再改版时解析静默降级为空列表（安全但无告警）。事件抓取窗口当前为 7 天，alerts/归因各自按 3 天窗口独立过滤，不受窗口扩大影响。
+- CNBC RSS 双源已验证（2026-08-06 实测 200）：宏观 Economy（id=20910258）与 US Top News（id=100003114），标准 RSS 2.0、无反爬拦截（仍携带头防御）；Yahoo Finance RSS 已 404 不可用。RSS 无 `news` 回退机制：日频刷新时 RSS 全挂则当次快照无头条（不沿用旧数据），属预期降级行为。
 - S1 实现经验：结构评分需要 252 根 52 周窗口，QQQ/QQQE 必须取 2y 周期（1y 约 250 根不足）；已按此调整 scheduler。真实快照曾出现 speed_score=20 而 depth_score=0（回撤仅 -5%），符合体系口径（速度维度独立计分）但视觉上偏大，若用户后续认为不合理需走体系修订流程。
 - S2 实现经验：回撤档位判定用 `ceil(dd/5)` 并先 round 到两位小数，否则浮点误差会把 -10.0% 抬到 -1 档造成误触发；evidence.day 经 JSON 序列化后是字符串，`attach_attribution_gate` 需 `date.fromisoformat` 还原。
 - monitoring 实现经验：CNN 端点真实返回七因子与约 251 点历史（可选字段），解析时对 `[ts,score]` 与 `{x,y}` 两种历史形状容错；monitoring 构建放在正式决策之后，单组失败用 try 隔离只降级该组；`mark_monitoring_stale` 保留原 `as_of` 不伪造新数据。
