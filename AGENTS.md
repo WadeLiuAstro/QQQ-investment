@@ -109,7 +109,7 @@ git branch -d task/<任务名>
 1. 项目必须使用 Git 进行版本管理，所有功能变更须通过 `git commit` 记录；不得绕过版本控制直接修改线上文件。
 2. 提交信息遵循 conventional commits 风格：`feat:`（新功能）、`fix:`（修复）、`docs:`（文档）、`chore:`（杂项）前缀。
 3. 每个 S 迭代或独立功能完成后必须 `push` 到远端对应分支：开发分支 `qqq-dashboard`，验证后的改动合入主分支 `main`（push 到 main 会触发 GitHub Pages 发布）。
-4. 不得将数据快照文件（`static/data/*.json`、`data/*.sqlite`）或 IDE 缓存（`.qoder/`、`__pycache__/`、`.venv/`）提交到版本库；这些路径由 `.gitignore` 排除，新增生成物或缓存目录时须同步补入。
+4. 不得将数据快照文件（`static/data/*.json`、`data/*.sqlite`）或 IDE 缓存（`.qoder/` 缓存内容、`__pycache__/`、`.venv/`）提交到版本库；这些路径由 `.gitignore` 排除（例外：`.qoder/agents/` 子代理定义属协作资产，纳入版本控制），新增生成物或缓存目录时须同步补入。
 
 ## 任务完成后的文档同步（强制）
 
