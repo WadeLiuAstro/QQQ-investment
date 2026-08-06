@@ -35,7 +35,7 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 - 每个市场卡带 `stale_lag`（最新 bar 距最近已收盘交易日的滞后交易日数，由 `expected_bar_date` 判定基准）；滞后 ≥1 个交易日时前端标注"数据滞后 N 个交易日"。已知根因：Yahoo 盘后对当日 bar 返回 Close=NaN 被过滤后数据停留上一交易日，标注随数据恢复自动消失。
 - 盘中成交量比率按已交易时段占比外推（分母下限 0.05）并标记 `volume_is_estimated`，阈值矩阵与信号拆解注明"盘中估算"；收盘后使用原始成交量，行为不变。
 - CNN Fear & Greed：仅作为可选辅助数据；不可用时不参与判断。
-- 消息面（news）：payload 顶层 `news`（可选，旧快照无此字段时前端隐藏），含 `upcoming`（未来最近 3 个宏观事件，含 days_until）与 `headlines`（最近 3 天、最多 12 条、时间降序）。数据源混合：现有宏观日历（FOMC/CPI/非农）打底 + CNBC RSS 双源（宏观 Economy + US Top News，中文来源名"CNBC 宏观"/"CNBC 头条"，浏览器请求头抓取，stdlib xml.etree 解析）；日历失败→upcoming 空，RSS 失败→`news_source_available=false` 头条区降级文案，两者都失败→`available=false`。随日频全量刷新一天一次，盘中守护不抓新闻；纯展示，永不耦合决策。
+- 消息面（news）：payload 顶层 `news`（可选，旧快照无此字段时前端隐藏），含 `upcoming`（未来 45 天内最近最多 10 个宏观事件，升序，含 days_until）与 `headlines`（最近 3 天、最多 12 条、时间降序）。事件抓取窗口 `EVENT_WINDOW_DAYS=45`（服务日历，覆盖如 41 天后的 FOMC）；监控区"临近高影响事件"另行预过滤 `MONITORING_EVENT_WINDOW_DAYS=7` 保持"临近"语义；alerts/归因各自按 3 天窗口独立过滤。数据源混合：现有宏观日历（FOMC/CPI/非农）打底 + CNBC RSS 双源（宏观 Economy + US Top News，中文来源名"CNBC 宏观"/"CNBC 头条"，浏览器请求头抓取，stdlib xml.etree 解析）；日历失败→upcoming 空，RSS 失败→`news_source_available=false` 头条区降级文案，两者都失败→`available=false`。随日频全量刷新一天一次，盘中守护不抓新闻；纯展示，永不耦合决策。
 - BLS 宏观日历：失败时显示不可用，不中断其它模块。
 - `^IXIC`：展示近一年日 OHLC，前端默认 3 个月 K 线；不参与决策。
 - QQQ 决策由 `app/services/decision.py` 与规则配置共同输出，前端只负责解释与展示。
@@ -69,7 +69,8 @@ QQQ 美股投研仪表盘用于辅助长期定投和目标仓位判断。核心�
 - 大跌归因卡片（`attribution-card`）：闸门徽标（放行/减半/冻结）+ 证据集（当日跌幅/回撤/VIX+跳升/宽度 RS/临近事件）+ 拍板截止或复核截止倒计时 + 三选一拍板表单（分类下拉 + 理由必填）；已拍板后显示结论并隐藏表单；提交失败（静态站）提示导出 JSON 走手动流程。
 - 决策日志卡片（`decision-log-card`）：时间轴展示 signal/attribution/execution 三类日志；本地服务拉取 `/api/decision-log`，静态站或空库时显示对应空态文案。
 - 监控指标增强区（`#monitoring-section`，B 位：QQQ/宏观 hero 之后、事件卡之前）：顶部四张摘要卡（CNN 市场情绪/QQQ 核心趋势/市场宽度/波动率体制）+ 四个可点击分组手风琴（情绪与波动/核心趋势与宽度/板块轮动/宏观与防御）。互斥展开（同时最多一组），分组按钮用原生 `<button>` + `aria-expanded`/`aria-controls` 支持键盘；展开状态写 `sessionStorage`（key `monitoring-open-group`），不入库不上传。`payload.monitoring` 缺失时整个 section 隐藏。只做事实陈述（上行/下行/平稳/期限倒挂等），不含买入/卖出/加仓/减仓字样；VIX 上升用红（风险升温），CNN 按恐惧—贪婪区间着色。桌面摘要四列、手机 2×2。
-- 消息面卡片（`#news-section`，monitoring-section 之后）：标题"消息面 · 预期与头条"，样本 C 布局——顶部最多 3 张预期事件卡（日期 + 倒计时 chip，≤7 天琥珀色"临近 · N 天"）+ "近三日关键头条"列表（时间｜中文来源徽标｜英文标题原文｜"原文↗"链接 target=_blank rel=noopener）+ 脚注"随日频快照更新 · 覆盖最近 3 天 · 最多 12 条 · 仅陈述事实，不构成任何判断依据"；降级文案："暂无排期事件"/"新闻源暂不可用，仅展示排期事件"/"近三日暂无收录头条"/"消息面暂不可用"；标题/来源/URL 拼接前经 HTML 转义；`p.news` 缺失时整个 section 隐藏；桌面事件 3 列/头条 4 列，手机单列。
+- 消息面卡片（`#news-section`，monitoring-section 之后）：标题"消息面 · 预期与头条"——预期事件区为**当月网格月历**（周一起始 7 列，表头 一二三四五六日，事件日 `<button class="nc-day has-event">` 圆点标注，days_until≤7 琥珀/其余绿色，点按在 `#news-cal-readout` 显示"YYYY-MM-DD · 事件名"，跨月事件在网格末尾标"+N 下月事件"，无事件时保留"暂无排期事件"）+ "近三日关键头条"列表（时间｜中文来源徽标｜英文标题原文｜"原文↗"链接 target=_blank rel=noopener）+ 脚注"随日频快照更新 · 覆盖最近 3 天 · 最多 12 条 · 仅陈述事实，不构成任何判断依据"；降级文案："新闻源暂不可用，仅展示排期事件"/"近三日暂无收录头条"/"消息面暂不可用"；标题/来源/URL 拼接前经 HTML 转义；`p.news` 缺失时整个 section 隐藏；手机压缩网格。
+- 顶部头条摘要栏（`#news-ticker-bar`，信号带之后，role=note + tabindex=0 键盘可达）：常驻标注"消息面 · 日频更新 {时间}"（不暗示实时）+ 最新最多 3 条头条叠位淡入淡出轮换（8 秒/条，opacity 过渡 0.6s，mouseenter/focusin 暂停），`prefers-reduced-motion` 时静态显示第一条；点击/Enter 平滑滚动到 `#news-section`；头条为空时整栏隐藏；纯 CSS/JS 实现无第三方动效库。
 - 情绪与波动分组内的 CNN 情绪子区顺序：SVG 仪表盘 gauge（中心数值在表盘下方正常流布局，不与指针重叠）→ 综合判断横幅 → 四张历史对比卡 → **近一年市场情绪走势图**（`#fg-history-chart`，Lightweight Charts 折线，Y 轴固定 0–100，四条虚线分档线 25/45/55/75 带"恐惧/谨慎/中性/乐观 ≤N"标签，颜色与 FG_BANDS 一致；悬停/点按在 `#fg-history-readout` 显示日期·分数·五档标签）→ CNN 七项分因子 → VIX/VIX3M 行。历史为空时显示"暂无历史走势数据（CNN 情绪历史不可用）"；分组重新展开时会先销毁旧图表实例再重建。
 - ^IXIC K 线为日K（每根=1 交易日，`interval=1d`），界面显式标注"日K · 每根=1 交易日"；1月/3月/6月/1年为时间范围切换而非粒度切换。
 
