@@ -1,6 +1,6 @@
 """消息面服务层测试：窗口过滤、条数上限、排序、days_until 计算与降级矩阵。
 
-并覆盖调度层接线：事件窗口放宽到 35 天后 news.upcoming 上限 10，
+并覆盖调度层接线：事件窗口放宽到 45 天后 news.upcoming 上限 10，
 且传给监控区的事件仍按 7 天预过滤。
 """
 
@@ -120,7 +120,7 @@ class TestUpcoming:
         assert board.upcoming == []
 
     def test_upcoming_sorted_ascending_and_capped_at_ten(self) -> None:
-        # 上限从 3 放宽到 10（服务 35 天窗口消息面日历），4 个事件全部保留且升序
+        # 上限从 3 放宽到 10（服务 45 天窗口消息面日历），4 个事件全部保留且升序
         events = [
             _event("第四个事件", NOW + timedelta(days=30)),
             _event("第一个事件", NOW + timedelta(days=1)),
@@ -275,7 +275,7 @@ class TestPayloadCompatibility:
 
 
 # ---------------------------------------------------------------------------
-# 调度层接线：35 天事件窗口 + 监控区 7 天预过滤
+# 调度层接线：45 天事件窗口 + 监控区 7 天预过滤
 # ---------------------------------------------------------------------------
 
 
@@ -293,18 +293,19 @@ def _status(source: str, available: bool = True) -> SourceStatus:
 def test_scheduler_wide_window_upcoming_and_monitoring_prefilter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """35 天窗口事件（+10/+20 天）进入 news.upcoming；监控区只保留 ≤7 天事件。"""
+    """45 天窗口事件（+10/+20/+40 天）进入 news.upcoming；监控区只保留 ≤7 天事件。"""
     captured: dict[str, date] = {}
     now = datetime.now(UTC)
 
     def fake_macro(client, start, end):
-        # 记录调度层传入的窗口参数，验证已放宽到 35 天
+        # 记录调度层传入的窗口参数，验证已放宽到 45 天
         captured["start"] = start
         captured["end"] = end
         return [
             MacroEvent(kind="cpi", title="三天后 CPI", event_at=now + timedelta(days=3), source="mock"),
             MacroEvent(kind="fomc", title="十天后 FOMC", event_at=now + timedelta(days=10), source="mock"),
             MacroEvent(kind="nonfarm", title="二十天后非农", event_at=now + timedelta(days=20), source="mock"),
+            MacroEvent(kind="fomc", title="四十天后 FOMC", event_at=now + timedelta(days=40), source="mock"),
         ], _status("macro_calendar")
 
     rising = _bars([100.0 + index * 0.5 for index in range(260)])
@@ -340,13 +341,13 @@ def test_scheduler_wide_window_upcoming_and_monitoring_prefilter(
 
     payload = collect_dashboard_payload(None)
 
-    # 1. 抓取窗口放宽到 35 天（服务消息面日历）
-    assert (captured["end"] - captured["start"]).days == 35
+    # 1. 抓取窗口放宽到 45 天（服务消息面日历，覆盖如 41 天后的 FOMC）
+    assert (captured["end"] - captured["start"]).days == 45
 
-    # 2. 35 天窗口内的远期事件（+10/+20 天）也进入 news.upcoming
+    # 2. 45 天窗口内的远期事件（+10/+20/+40 天）也进入 news.upcoming
     assert payload.news is not None
     upcoming_titles = [u.title for u in payload.news.upcoming]
-    assert upcoming_titles == ["三天后 CPI", "十天后 FOMC", "二十天后非农"]
+    assert upcoming_titles == ["三天后 CPI", "十天后 FOMC", "二十天后非农", "四十天后 FOMC"]
 
     # 3. 监控区"临近高影响事件"只保留 ≤7 天事件，保持"临近"语义
     monitoring = payload.monitoring

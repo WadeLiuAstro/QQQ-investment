@@ -45,8 +45,8 @@ from app.services.trend import evaluate_trend
 # 守护用默认报价抓取（别名便于测试注入，与 fetch_quote 为同一函数）
 fetch_quote_default = fetch_quote
 
-# 宏观事件抓取窗口天数：放宽到 35 天，服务消息面日历视图（月历全量展示）
-EVENT_WINDOW_DAYS = 35
+# 宏观事件抓取窗口天数：放宽到 45 天，服务消息面日历视图（覆盖如 41 天后的 FOMC）
+EVENT_WINDOW_DAYS = 45
 # 监控区"临近高影响事件"预过滤窗口：保持"临近"语义，仅保留 7 天内事件
 MONITORING_EVENT_WINDOW_DAYS = 7
 
@@ -133,7 +133,7 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
 
     with httpx.Client() as client:
         fear_greed, fear_status = fetch_fear_greed(client)
-        # 事件窗口放宽到 35 天：服务消息面日历；监控区另行预过滤 7 天
+        # 事件窗口放宽到 45 天：服务消息面日历；监控区另行预过滤 7 天
         events, macro_status = load_macro_events(
             client, date.today(), date.today() + timedelta(days=EVENT_WINDOW_DAYS)
         )
