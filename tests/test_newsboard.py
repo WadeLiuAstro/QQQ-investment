@@ -1,9 +1,18 @@
-"""消息面服务层测试：窗口过滤、条数上限、排序、days_until 计算与降级矩阵。"""
+"""消息面服务层测试：窗口过滤、条数上限、排序、days_until 计算与降级矩阵。
 
-from datetime import UTC, datetime, timedelta
+并覆盖调度层接线：事件窗口放宽到 35 天后 news.upcoming 上限 10，
+且传给监控区的事件仍按 7 天预过滤。
+"""
 
-from app.models import DashboardPayload, MacroEvent
+from datetime import UTC, date, datetime, timedelta
+
+import pytest
+
+from app.models import DashboardPayload, MacroEvent, SourceStatus
+from app.providers.cnn_fear_greed import FearGreedReading
 from app.providers.news_rss import NewsItem
+from app.providers.yahoo import PriceBar, Quote
+from app.scheduler import collect_dashboard_payload
 from app.services.newsboard import (
     HEADLINE_LIMIT,
     HEADLINE_WINDOW_DAYS,
@@ -99,7 +108,7 @@ class TestHeadlineLimitAndOrder:
 
 
 class TestUpcoming:
-    """upcoming：过去事件排除、升序、取前 3、days_until 向上取整。"""
+    """upcoming：过去事件排除、升序、取前 10、days_until 向上取整。"""
 
     def test_past_events_excluded(self) -> None:
         board = build_newsboard(
@@ -110,7 +119,8 @@ class TestUpcoming:
         )
         assert board.upcoming == []
 
-    def test_upcoming_sorted_ascending_and_capped_at_three(self) -> None:
+    def test_upcoming_sorted_ascending_and_capped_at_ten(self) -> None:
+        # 上限从 3 放宽到 10（服务 35 天窗口消息面日历），4 个事件全部保留且升序
         events = [
             _event("第四个事件", NOW + timedelta(days=30)),
             _event("第一个事件", NOW + timedelta(days=1)),
@@ -118,12 +128,25 @@ class TestUpcoming:
             _event("第二个事件", NOW + timedelta(days=10)),
         ]
         board = build_newsboard(events=events, items=[], now=NOW, news_available=True)
-        assert len(board.upcoming) == UPCOMING_LIMIT == 3
+        assert len(board.upcoming) == 4
+        assert UPCOMING_LIMIT == 10
         assert [u.title for u in board.upcoming] == [
             "第一个事件",
             "第二个事件",
             "第三个事件",
+            "第四个事件",
         ]
+        times = [u.event_at for u in board.upcoming]
+        assert times == sorted(times)
+
+    def test_twelve_future_events_keep_first_ten_ascending(self) -> None:
+        # 12 个未来事件（乱序）：按时间升序只取前 10 个，最晚 2 个被裁掉
+        offsets = [2, 30, 5, 33, 1, 20, 12, 25, 8, 15, 34, 28]
+        events = [_event(f"事件{i:02d}", NOW + timedelta(days=day)) for i, day in enumerate(offsets, start=1)]
+        board = build_newsboard(events=events, items=[], now=NOW, news_available=True)
+        assert len(board.upcoming) == UPCOMING_LIMIT == 10
+        kept_days = sorted(offsets)[:10]
+        assert [u.days_until for u in board.upcoming] == kept_days
         times = [u.event_at for u in board.upcoming]
         assert times == sorted(times)
 
@@ -249,3 +272,84 @@ class TestPayloadCompatibility:
         assert payload.news.available is True
         assert payload.news.upcoming[0].days_until == 7
         assert payload.news.headlines[0].source == "CNBC 头条"
+
+
+# ---------------------------------------------------------------------------
+# 调度层接线：35 天事件窗口 + 监控区 7 天预过滤
+# ---------------------------------------------------------------------------
+
+
+def _bars(closes: list[float], start: date = date(2025, 1, 1)) -> list[PriceBar]:
+    return [
+        PriceBar(day=start + timedelta(days=index), close=close, volume=1_000_000)
+        for index, close in enumerate(closes)
+    ]
+
+
+def _status(source: str, available: bool = True) -> SourceStatus:
+    return SourceStatus(source=source, available=available, checked_at=datetime.now(UTC))
+
+
+def test_scheduler_wide_window_upcoming_and_monitoring_prefilter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """35 天窗口事件（+10/+20 天）进入 news.upcoming；监控区只保留 ≤7 天事件。"""
+    captured: dict[str, date] = {}
+    now = datetime.now(UTC)
+
+    def fake_macro(client, start, end):
+        # 记录调度层传入的窗口参数，验证已放宽到 35 天
+        captured["start"] = start
+        captured["end"] = end
+        return [
+            MacroEvent(kind="cpi", title="三天后 CPI", event_at=now + timedelta(days=3), source="mock"),
+            MacroEvent(kind="fomc", title="十天后 FOMC", event_at=now + timedelta(days=10), source="mock"),
+            MacroEvent(kind="nonfarm", title="二十天后非农", event_at=now + timedelta(days=20), source="mock"),
+        ], _status("macro_calendar")
+
+    rising = _bars([100.0 + index * 0.5 for index in range(260)])
+    vix = _bars([16.0 + (index % 10) * 0.1 for index in range(260)])
+    vix3m = _bars([15.0 + (index % 10) * 0.05 for index in range(260)])
+
+    def fake_bars(symbol: str, period: str):
+        if symbol == "^VIX":
+            return vix, _status("yahoo")
+        if symbol == "^VIX3M":
+            return vix3m, _status("yahoo")
+        return rising, _status("yahoo")
+
+    def fake_quote(symbol: str):
+        return (
+            Quote(symbol=symbol, price=205.0, previous_close=200.0, is_intraday_estimate=False),
+            _status("yahoo_quote"),
+        )
+
+    def fake_fear_greed(client):
+        return (
+            FearGreedReading(score=50, rating="neutral", observed_at=datetime.now(UTC)),
+            _status("cnn_fear_greed"),
+        )
+
+    monkeypatch.setattr("app.scheduler.fetch_daily_bars", fake_bars)
+    monkeypatch.setattr("app.scheduler.fetch_quote", fake_quote)
+    monkeypatch.setattr("app.scheduler.fetch_fear_greed", fake_fear_greed)
+    monkeypatch.setattr("app.scheduler.load_macro_events", fake_macro)
+    monkeypatch.setattr(
+        "app.scheduler.fetch_rss_headlines", lambda client: ([], _status("news_rss"))
+    )
+
+    payload = collect_dashboard_payload(None)
+
+    # 1. 抓取窗口放宽到 35 天（服务消息面日历）
+    assert (captured["end"] - captured["start"]).days == 35
+
+    # 2. 35 天窗口内的远期事件（+10/+20 天）也进入 news.upcoming
+    assert payload.news is not None
+    upcoming_titles = [u.title for u in payload.news.upcoming]
+    assert upcoming_titles == ["三天后 CPI", "十天后 FOMC", "二十天后非农"]
+
+    # 3. 监控区"临近高影响事件"只保留 ≤7 天事件，保持"临近"语义
+    monitoring = payload.monitoring
+    assert monitoring is not None
+    macro_events = monitoring.groups["macro_defensive"].details.events
+    assert [e.title for e in macro_events] == ["三天后 CPI"]
