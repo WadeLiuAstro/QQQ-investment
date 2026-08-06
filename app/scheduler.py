@@ -131,7 +131,7 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
         )
     market_open = is_regular_session_open()
 
-    with httpx.Client() as client:
+    with httpx.Client(follow_redirects=True) as client:
         fear_greed, fear_status = fetch_fear_greed(client)
         # 事件窗口放宽到 45 天：服务消息面日历；监控区另行预过滤 7 天
         events, macro_status = load_macro_events(

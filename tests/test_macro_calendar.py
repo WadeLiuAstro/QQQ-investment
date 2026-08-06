@@ -1,8 +1,13 @@
-from datetime import date
+from datetime import date, datetime
 
 import httpx
 
-from app.providers.macro_calendar import load_macro_events, parse_fomc_events
+from app.providers.macro_calendar import (
+    NEW_YORK,
+    load_macro_events,
+    parse_bls_events,
+    parse_fomc_events,
+)
 
 # Fed 页面新结构 fixture：
 # - 年份分段标题为 <h4><a id="数字">YYYY FOMC Meetings</a></h4>
@@ -30,12 +35,36 @@ NEW_FED_HTML = """
 </div>
 """
 
+# BLS 新版月度日历页 fixture（2026 起改版）：
+# - 页面标题含 "Schedule of Selected Releases for <Month> <Year>"，用于年份推断
+# - <td id="dMMDD"> 单元格内 <p class="day">日期</p> 与
+#   <p><strong>事件名</strong> 数据期<br>时间</p> 事件块
+# - 日历含上月尾部/当月/下月头部（other-month 格）
 BLS_HTML = """
-    <table>
-      <tr><td>Employment Situation</td><td>Friday, September 4, 2026</td></tr>
-      <tr><td>Consumer Price Index</td><td>Friday, September 11, 2026</td></tr>
-    </table>
-    """
+<html><head><title>Schedule of Selected Releases for August 2026</title></head>
+<body>
+<table>
+<tr>
+  <td class="other-month" id="d0807"><p class="day">7</p><p><strong>Employment Situation</strong><br>July 2026<br>08:30 AM</p></td>
+  <td class="this-month" id="d0812"><p class="day">12</p><p><strong>Consumer Price Index</strong><br>July 2026<br>08:30 AM</p></td>
+  <td class="other-month" id="d0904"><p class="day">4</p><p><strong>Employment Situation</strong><br>August 2026<br>08:30 AM</p></td>
+</tr>
+</table>
+</body></html>
+"""
+
+# 9 月页：9/4 非农与 8 月页 other-month 格重复，应去重；另有 9/11 CPI
+BLS_HTML_SEP = """
+<html><head><title>Schedule of Selected Releases for September 2026</title></head>
+<body>
+<table>
+<tr>
+  <td class="this-month" id="d0904"><p class="day">4</p><p><strong>Employment Situation</strong><br>August 2026<br>08:30 AM</p></td>
+  <td class="this-month" id="d0911"><p class="day">11</p><p><strong>Consumer Price Index</strong><br>August 2026<br>08:30 AM</p></td>
+</tr>
+</table>
+</body></html>
+"""
 
 
 def test_parse_fomc_events_new_structure() -> None:
@@ -111,11 +140,30 @@ def test_parse_fomc_events_unknown_structure_returns_empty() -> None:
     assert parse_fomc_events("") == []
 
 
+def test_parse_bls_events_new_calendar_structure() -> None:
+    # 新日历结构：dMMDD 单元格 + strong 事件名 + 时间；跨月格归属正确年份
+    events = parse_bls_events(BLS_HTML)
+
+    assert [(event.kind, event.event_at) for event in events] == [
+        ("nfp", datetime(2026, 8, 7, 8, 30, tzinfo=NEW_YORK)),
+        ("cpi", datetime(2026, 8, 12, 8, 30, tzinfo=NEW_YORK)),
+        ("nfp", datetime(2026, 9, 4, 8, 30, tzinfo=NEW_YORK)),
+    ]
+
+
+def test_parse_bls_events_unknown_structure_returns_empty() -> None:
+    # 页面结构无法识别（无标题/无日期格）时返回空列表，绝不抛异常
+    assert parse_bls_events("<html>no calendar</html>") == []
+    assert parse_bls_events("") == []
+
+
 def test_macro_calendar_loads_fomc_cpi_and_employment_events() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if "federalreserve" in str(request.url):
             return httpx.Response(200, text=NEW_FED_HTML)
-        return httpx.Response(200, text=BLS_HTML)
+        if "08_sched" in str(request.url):
+            return httpx.Response(200, text=BLS_HTML)
+        return httpx.Response(200, text=BLS_HTML_SEP)
 
     events, status = load_macro_events(
         httpx.Client(transport=httpx.MockTransport(handler)),
@@ -125,6 +173,7 @@ def test_macro_calendar_loads_fomc_cpi_and_employment_events() -> None:
 
     assert status.available is True
     assert status.message is None
+    # 9/4 非农在两页重复出现，应去重为一条
     assert [(event.kind, event.event_at.date()) for event in events] == [
         ("nfp", date(2026, 9, 4)),
         ("cpi", date(2026, 9, 11)),
@@ -158,7 +207,9 @@ def test_macro_calendar_fomc_failure_keeps_bls_events() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if "federalreserve" in str(request.url):
             return httpx.Response(503)
-        return httpx.Response(200, text=BLS_HTML)
+        if "08_sched" in str(request.url):
+            return httpx.Response(200, text=BLS_HTML)
+        return httpx.Response(200, text=BLS_HTML_SEP)
 
     events, status = load_macro_events(
         httpx.Client(transport=httpx.MockTransport(handler)),

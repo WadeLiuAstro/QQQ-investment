@@ -7,8 +7,47 @@ import httpx
 from app.models import MacroEvent, SourceStatus
 
 FOMC_URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
-BLS_URL = "https://www.bls.gov/schedule/news_release/"
+# BLS 日历已改版：/schedule/news_release/ 仅 302 到当月页，直接按月份 URL 抓取
+# https://www.bls.gov/schedule/{year}/{month:02d}_sched.htm
 NEW_YORK = ZoneInfo("America/New_York")
+
+# BLS 由 Akamai 反爬网关保护：仅带 UA 仍返回 403，需要完整浏览器特征头
+# （含 Sec-Fetch-*、Upgrade-Insecure-Requests 等）才能放行；Fed 站点同样适用。
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/126.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+}
+
+
+def _get_with_redirect(client: httpx.Client, url: str) -> httpx.Response:
+    """GET 并手动跟随重定向（BLS 页面会 302 跳到当月排期页）。
+
+    外部传入的 client 默认不跟随重定向，这里最多跟随 3 跳；
+    无 location 头或超过跳数上限时返回最后一次响应。
+    """
+    response = client.get(url, timeout=8.0, headers=_BROWSER_HEADERS)
+    hops = 0
+    while response.is_redirect and hops < 3:
+        location = response.headers.get("location")
+        if not location:
+            break
+        response = client.get(
+            response.url.join(location), timeout=8.0, headers=_BROWSER_HEADERS
+        )
+        hops += 1
+    return response
 
 
 def load_macro_events(
@@ -23,16 +62,14 @@ def load_macro_events(
     fomc_error: str | None = None
     bls_error: str | None = None
     try:
-        fomc_response = client.get(FOMC_URL, timeout=8.0)
+        fomc_response = _get_with_redirect(client, FOMC_URL)
         fomc_response.raise_for_status()
         fomc_events = parse_fomc_events(fomc_response.text)
     except (httpx.HTTPError, TypeError, ValueError) as error:
         # 单源失败只记录错误信息，不抛出
         fomc_error = str(error)[:200]
     try:
-        bls_response = client.get(BLS_URL, timeout=8.0)
-        bls_response.raise_for_status()
-        bls_events = parse_bls_events(bls_response.text)
+        bls_events = _fetch_bls_events(client, start)
     except (httpx.HTTPError, TypeError, ValueError) as error:
         bls_error = str(error)[:200]
     if fomc_events is None and bls_events is None:
@@ -131,27 +168,120 @@ def _year_for_position(
     return year
 
 
+_BLS_CELL_PATTERN = re.compile(r'<td[^>]*id="d(\d{4})"[^>]*>(.*?)</td>', re.DOTALL)
+_BLS_TIME_PATTERN = re.compile(r"(\d{1,2}):(\d{2}) (AM|PM)")
+# 只解析这两个已确认的高影响事件；页面同时含 JOLTS/进出口价格等低影响条目
+_BLS_KINDS = (
+    ("nfp", "非农就业报告", "Employment Situation"),
+    ("cpi", "CPI 数据公布", "Consumer Price Index"),
+)
+
+
 def parse_bls_events(html: str) -> list[MacroEvent]:
+    """解析 BLS 新版月度日历页（2026 起改版）。
+
+    结构：<td id="dMMDD"> 单元格内 <p class="day">日期</p> 与
+    <p><strong>事件名</strong> 数据期<br> 时间</p> 事件块；页面标题
+    "Schedule of Selected Releases for August 2026" 提供年份，跨月格
+    （上月/下月）按相对页面月归属年份。
+    """
+    title_match = re.search(r"for (\w+) (\d{4})", html)
+    if title_match is None:
+        return []
+    page_year = int(title_match.group(2))
+    try:
+        page_month = datetime.strptime(title_match.group(1), "%B").month
+    except ValueError:
+        return []
     events: list[MacroEvent] = []
-    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", html, flags=re.DOTALL | re.IGNORECASE)
-    for row in rows:
-        text = re.sub(r"<[^>]+>", " ", row)
-        normalized = " ".join(text.split())
-        kind_and_title = (
-            ("nfp", "非农就业报告", "Employment Situation"),
-            ("cpi", "CPI 数据公布", "Consumer Price Index"),
-        )
-        for kind, title, marker in kind_and_title:
-            if marker not in normalized:
-                continue
-            match = re.search(
-                r"(?:Monday|Tuesday|Wednesday|Thursday|Friday),\s+([A-Za-z]+\s+\d{1,2},\s+\d{4})",
-                normalized,
+    for month_day, cell_html in _BLS_CELL_PATTERN.findall(html):
+        mm, dd = int(month_day[:2]), int(month_day[2:])
+        year = _bls_cell_year(page_year, page_month, mm)
+        if year is None:
+            continue
+        for block in re.findall(r"<p>(.*?)</p>", cell_html, flags=re.DOTALL):
+            strong = " ".join(
+                " ".join(re.sub(r"<[^>]+>", " ", match).split())
+                for match in re.findall(
+                    r"<strong>(.*?)</strong>", block, flags=re.DOTALL
+                )
             )
-            if match:
-                event_date = datetime.strptime(match.group(1), "%B %d, %Y").date()
-                events.append(_event(kind, title, event_date, 8, 30, "bls"))
+            kind_title = _bls_kind(strong)
+            if kind_title is None:
+                continue
+            kind, title = kind_title
+            hour, minute = _bls_time(block)
+            try:
+                event_date = date(year, mm, dd)
+            except ValueError:
+                # 畸形日期（如 2 月 30 日）跳过，整体不抛异常
+                continue
+            events.append(_event(kind, title, event_date, hour, minute, "bls"))
     return events
+
+
+def _bls_cell_year(
+    page_year: int, page_month: int, cell_month: int
+) -> int | None:
+    """单元格月份归属年份：日历只含上月尾部、当月、下月头部。
+
+    相邻月与页面月同年；仅跨年场景（1 月页含去年 12 月、
+    12 月页含明年 1 月）年份偏移。
+    """
+    if page_month == 1 and cell_month == 12:
+        return page_year - 1
+    if page_month == 12 and cell_month == 1:
+        return page_year + 1
+    if cell_month in (page_month - 1, page_month, page_month + 1):
+        return page_year
+    return None
+
+
+def _bls_kind(strong: str) -> tuple[str, str] | None:
+    for kind, title, marker in _BLS_KINDS:
+        if marker in strong:
+            return kind, title
+    return None
+
+
+def _bls_time(block: str) -> tuple[int, int]:
+    """事件块内的发布时间（AM/PM → 24h）；缺失时按 08:30 兜底。"""
+    time_match = _BLS_TIME_PATTERN.search(block)
+    if time_match is None:
+        return 8, 30
+    hour, minute = int(time_match.group(1)), int(time_match.group(2))
+    if time_match.group(3) == "PM" and hour < 12:
+        hour += 12
+    if time_match.group(3) == "AM" and hour == 12:
+        hour = 0
+    return hour, minute
+
+
+def _bls_page_url(year: int, month: int) -> str:
+    """BLS 月度排期页 URL（如 2026 年 8 月：/schedule/2026/08_sched.htm）。"""
+    return f"https://www.bls.gov/schedule/{year}/{month:02d}_sched.htm"
+
+
+def _bls_pages(start: date) -> list[tuple[int, int]]:
+    """窗口起始月起连抓当月与下月两个日历页（跨月事件不会遗漏）。"""
+    next_year, next_month = (
+        (start.year + 1, 1) if start.month == 12 else (start.year, start.month + 1)
+    )
+    return [(start.year, start.month), (next_year, next_month)]
+
+
+def _fetch_bls_events(client: httpx.Client, start: date) -> list[MacroEvent] | None:
+    """抓取当月与下月 BLS 日历页并合并解析；任一页失败整体视为 BLS 不可用。"""
+    events: list[MacroEvent] = []
+    for page_year, page_month in _bls_pages(start):
+        response = _get_with_redirect(client, _bls_page_url(page_year, page_month))
+        response.raise_for_status()
+        events.extend(parse_bls_events(response.text))
+    # 相邻两页的 other-month 格可能重复同一事件（如 9/4 非农），按 kind+时间去重
+    deduped: dict[tuple[str, datetime], MacroEvent] = {}
+    for event in events:
+        deduped.setdefault((event.kind, event.event_at), event)
+    return list(deduped.values())
 
 
 def _event(
