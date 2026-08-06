@@ -65,15 +65,17 @@ def load_macro_events(
 
 # Fed 日历页面新结构（2025 起改版）：
 # - 每个年份一个分段，标题为 <h4><a id="数字">YYYY FOMC Meetings</a></h4>
-# - 会议块内月份在 fomc-meeting__month 的 <strong> 中，
-#   日期在其后独立的 fomc-meeting__date 块中，形如 "15-16" 或 "15-16*"
+# - 会议块内月份在带 fomc-meeting__month 类名（容忍其他类与空白）的 div 后的
+#   <strong> 中（允许中间 HTML 噪声），日期在其后独立的 fomc-meeting__date 块中，
+#   形如 "15-16" 或 "15-16*"
 # - 会议日期语义取范围的结束日（如 15-16 取 16），决议公布时间为结束日 14:00（纽约时间）
 _FOMC_YEAR_HEADER_PATTERN = re.compile(
     r'<h4>\s*<a id="\d+">(20\d\d) FOMC Meetings</a>\s*</h4>'
 )
+# 锚定 fomc-meeting__month 类名，避免页面其他位置的 <strong>月份</strong> 文本被误配
 _FOMC_MONTH_PATTERN = re.compile(
-    r"<strong>(January|February|March|April|May|June|July|August|"
-    r"September|October|November|December)</strong>"
+    r"fomc-meeting__month[^>]*>\s*(?:<[^>]+>\s*)*<strong>(January|February|March|"
+    r"April|May|June|July|August|September|October|November|December)</strong>"
 )
 _FOMC_DATE_PATTERN = re.compile(
     r"fomc-meeting__date[^>]*>\s*(\d{1,2})-(\d{1,2})\*?\s*<"

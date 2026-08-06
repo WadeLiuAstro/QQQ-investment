@@ -79,6 +79,32 @@ def test_parse_fomc_events_skips_malformed_blocks() -> None:
     assert [event.event_at.date() for event in events] == [date(2026, 4, 29)]
 
 
+def test_parse_fomc_events_ignores_month_strong_without_meeting_class() -> None:
+    # 年份段内不带 fomc-meeting__month 类的 <strong>月份</strong> 干扰文本
+    # （如纪要/新闻措辞）不得被误配为会议
+    noisy_html = """
+    <h4><a id="1">2026 FOMC Meetings</a></h4>
+    <div class="col-xs-12 col-sm-4 fomc-meeting">
+      <div class="fomc-meeting__month"><strong>January</strong></div>
+      <div class="fomc-meeting__date ">27-28</div>
+    </div>
+    <p>The <strong>March</strong> minutes will be published later.</p>
+    <div class="fomc-meeting__date ">17-18</div>
+    <div class="col-xs-12 col-sm-4 fomc-meeting">
+      <div class="fomc-meeting__month "><span><strong>September</strong></span></div>
+      <div class="fomc-meeting__date ">15-16</div>
+    </div>
+    """
+    events = parse_fomc_events(noisy_html)
+
+    # 干扰的 <strong>March</strong> 不产生会议；类名锚定的月份正常解析
+    # （September 容忍类属性尾部空白与 div/strong 之间的 HTML 噪声）
+    assert [(event.event_at.date()) for event in events] == [
+        date(2026, 1, 28),
+        date(2026, 9, 16),
+    ]
+
+
 def test_parse_fomc_events_unknown_structure_returns_empty() -> None:
     # 页面结构无法识别时返回空列表，由调用方降级，绝不抛异常
     assert parse_fomc_events("<html>September 15-16, 2026</html>") == []
