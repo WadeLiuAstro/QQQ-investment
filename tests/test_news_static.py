@@ -100,6 +100,54 @@ def test_news_styles_responsive() -> None:
     assert "@media" in css
 
 
+# --- Task C：顶部头条摘要栏契约 ---
+
+def test_news_topbar_html_contract() -> None:
+    html = HTML.read_text(encoding="utf-8")
+    assert 'id="news-ticker-bar"' in html
+    assert 'tabindex="0"' in html
+    # 位于信号带之后、main 其余内容（alert-banner）之前
+    assert html.index('class="signal-band"') < html.index('id="news-ticker-bar"')
+    assert html.index('id="news-ticker-bar"') < html.index('id="alert-banner"')
+    assert 'id="nt-label"' in html
+    assert 'id="nt-stage"' in html
+
+
+def test_news_topbar_script_contract() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    for token in (
+        "function renderNewsTopbar",
+        "消息面 · 日频更新",
+        "setInterval",
+        "8000",
+        "prefers-reduced-motion",
+        "scrollIntoView",
+        "news-section",
+        "mouseenter",
+        "focusin",
+        "mouseleave",
+        "focusout",
+        "Enter",
+        "newsEscapeHtml",
+    ):
+        assert token in script, f"app.js 缺少 {token}"
+    # renderDashboard 中以 headlines + generated_at 调用
+    assert "renderNewsTopbar((p.news||{}).headlines||[],p.generated_at)" in script
+
+
+def test_news_topbar_no_third_party_marquee() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "marquee" not in script.lower()
+
+
+def test_news_topbar_styles() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    for cls in (".news-ticker", ".nt-label", ".nt-stage", ".nt-item", ".nt-item.active", ".news-ticker:focus-visible"):
+        assert cls in css, f"style.css 缺少 {cls}"
+    assert "opacity" in css
+    assert "grid-area:1/1" in css
+
+
 # --- 调用顺序与决策隔离 ---
 
 def test_news_called_after_monitoring_in_render_dashboard() -> None:
