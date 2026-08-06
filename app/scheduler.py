@@ -12,6 +12,7 @@ from app.db import SnapshotRepository
 from app.models import DashboardPayload, IntradayWatch, SourceStatus
 from app.providers.cnn_fear_greed import fetch_fear_greed
 from app.providers.macro_calendar import load_macro_events
+from app.providers.news_rss import fetch_rss_headlines
 from app.providers.yahoo import Quote, fetch_daily_bars, fetch_quote
 from app.services.backtest import run_backtest
 from app.services.action_card import build_action_card
@@ -29,6 +30,7 @@ from app.services.export import write_dashboard_json
 from app.services.indicators import calculate_indicators
 from app.services.intraday_guard import build_circuit_alerts, detect_circuit_events
 from app.services.monitoring import build_monitoring, mark_monitoring_stale
+from app.services.newsboard import build_newsboard
 from app.services.session import (
     NY_TZ,
     expected_bar_date,
@@ -129,6 +131,11 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
         events, macro_status = load_macro_events(
             client, date.today(), date.today() + timedelta(days=7)
         )
+        # 消息面 RSS 抓取：与恐贪指数共用同一 httpx 客户端；异常时置空，由下方 try 统一降级
+        try:
+            news_result = fetch_rss_headlines(client)
+        except Exception:
+            news_result = None
     sources["cnn_fear_greed"] = fear_status
     sources["macro_calendar"] = macro_status
 
@@ -200,6 +207,18 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
         else:
             monitoring = None
 
+    # 消息面板：抓取+组装整体用 try/except 隔离（参照 monitoring 写法），
+    # 任何异常 → newsboard=None，只降级消息子区，不影响其余 payload
+    newsboard = None
+    try:
+        if news_result is None:
+            raise RuntimeError("消息面 RSS 抓取失败")
+        news_items, news_status = news_result
+        sources["news_rss"] = news_status.model_copy(update={"source": "news_rss"})
+        newsboard = build_newsboard(events, news_items, generated_at, news_status.available)
+    except Exception:
+        newsboard = None
+
     return build_dashboard_payload(
         generated_at=generated_at,
         sources=sources,
@@ -210,6 +229,7 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
         action_card=action_card,
         previous=previous,
         monitoring=monitoring,
+        news=newsboard,
     )
 
 
