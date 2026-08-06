@@ -5,13 +5,15 @@ from typing import Callable
 
 import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 from app.config import load_rule_config
 from app.db import SnapshotRepository
-from app.models import DashboardPayload, SourceStatus
+from app.models import DashboardPayload, IntradayWatch, SourceStatus
 from app.providers.cnn_fear_greed import fetch_fear_greed
 from app.providers.macro_calendar import load_macro_events
-from app.providers.yahoo import fetch_daily_bars, fetch_quote
+from app.providers.news_rss import fetch_rss_headlines
+from app.providers.yahoo import Quote, fetch_daily_bars, fetch_quote
 from app.services.backtest import run_backtest
 from app.services.action_card import build_action_card
 from app.services.alerts import build_alerts
@@ -26,6 +28,9 @@ from app.services.decision import evaluate_decision
 from app.services.explanation import build_threshold_matrix
 from app.services.export import write_dashboard_json
 from app.services.indicators import calculate_indicators
+from app.services.intraday_guard import build_circuit_alerts, detect_circuit_events
+from app.services.monitoring import build_monitoring, mark_monitoring_stale
+from app.services.newsboard import build_newsboard
 from app.services.session import (
     NY_TZ,
     expected_bar_date,
@@ -36,6 +41,14 @@ from app.services.session import (
 from app.services.state_history import build_state_history
 from app.services.structural import compute_structural_score
 from app.services.trend import evaluate_trend
+
+# 守护用默认报价抓取（别名便于测试注入，与 fetch_quote 为同一函数）
+fetch_quote_default = fetch_quote
+
+# 宏观事件抓取窗口天数：放宽到 45 天，服务消息面日历视图（覆盖如 41 天后的 FOMC）
+EVENT_WINDOW_DAYS = 45
+# 监控区"临近高影响事件"预过滤窗口：保持"临近"语义，仅保留 7 天内事件
+MONITORING_EVENT_WINDOW_DAYS = 7
 
 SYMBOLS = {
     "qqq": "QQQ",
@@ -84,6 +97,7 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
     vix_value = None
     vix_bars = None
     vix3m_bars = None
+    bars_by_key: dict[str, object] = {}
 
     for key, symbol in SYMBOLS.items():
         # 结构评分需要 252 根 52 周窗口，QQQ/QQQE 取 2y 保证足够历史
@@ -91,6 +105,7 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
         bars, status = fetch_daily_bars(symbol, period)
         sources[f"yahoo_{key}"] = status.model_copy(update={"source": f"yahoo_{key}"})
         if bars:
+            bars_by_key[key] = bars
             market[key] = _market_card(
                 symbol, bars, expected=expected_bar_date(datetime.now(NY_TZ))
             )
@@ -118,9 +133,15 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
 
     with httpx.Client() as client:
         fear_greed, fear_status = fetch_fear_greed(client)
+        # 事件窗口放宽到 45 天：服务消息面日历；监控区另行预过滤 7 天
         events, macro_status = load_macro_events(
-            client, date.today(), date.today() + timedelta(days=7)
+            client, date.today(), date.today() + timedelta(days=EVENT_WINDOW_DAYS)
         )
+        # 消息面 RSS 抓取：与恐贪指数共用同一 httpx 客户端；异常时置空，由下方 try 统一降级
+        try:
+            news_result = fetch_rss_headlines(client)
+        except Exception:
+            news_result = None
     sources["cnn_fear_greed"] = fear_status
     sources["macro_calendar"] = macro_status
 
@@ -175,6 +196,42 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
             indicators, decision, load_rule_config(), sources
         ).model_dump()
 
+    monitoring = None
+    try:
+        # 监控区"临近高影响事件"只保留 ≤7 天事件，保持"临近"语义（35 天窗口仅服务消息面日历）
+        monitoring_events = [
+            event
+            for event in events or []
+            if (event.event_at.date() - generated_at.date()).days
+            <= MONITORING_EVENT_WINDOW_DAYS
+        ]
+        monitoring = build_monitoring(
+            generated_at=generated_at,
+            bars_by_key=bars_by_key,
+            market=market,
+            fear_greed=fear_greed,
+            events=monitoring_events,
+            sources=sources,
+            previous=previous.monitoring if previous else None,
+        )
+    except Exception:
+        if previous is not None and previous.monitoring is not None:
+            monitoring = mark_monitoring_stale(previous.monitoring, generated_at)
+        else:
+            monitoring = None
+
+    # 消息面板：抓取+组装整体用 try/except 隔离（参照 monitoring 写法），
+    # 任何异常 → newsboard=None，只降级消息子区，不影响其余 payload
+    newsboard = None
+    try:
+        if news_result is None:
+            raise RuntimeError("消息面 RSS 抓取失败")
+        news_items, news_status = news_result
+        sources["news_rss"] = news_status.model_copy(update={"source": "news_rss"})
+        newsboard = build_newsboard(events, news_items, generated_at, news_status.available)
+    except Exception:
+        newsboard = None
+
     return build_dashboard_payload(
         generated_at=generated_at,
         sources=sources,
@@ -184,6 +241,8 @@ def collect_dashboard_payload(previous: DashboardPayload | None) -> DashboardPay
         backtest=backtest,
         action_card=action_card,
         previous=previous,
+        monitoring=monitoring,
+        news=newsboard,
     )
 
 
@@ -264,16 +323,81 @@ def _market_card(
         ]
     return card
 
+def run_intraday_guard(
+    repository: SnapshotRepository,
+    export_path: Path,
+    fetch_quote: Callable[[str], tuple[Quote | None, SourceStatus]] = fetch_quote_default,
+    now: datetime | None = None,
+) -> DashboardPayload | None:
+    """盘中轻量守护：只追加熔断预警并刷新 intraday_watch。
+
+    绝不重算正式决策，也不写状态历史；非交易时段或无日频快照时 no-op。
+    """
+    if now is None:
+        now = datetime.now(NY_TZ)
+    if not is_regular_session_open(now):
+        return None
+    payload = repository.load_latest_payload()
+    if payload is None:
+        return None
+
+    qqq_quote, _ = fetch_quote("QQQ")
+    vix_quote, _ = fetch_quote("^VIX")
+
+    findings = detect_circuit_events(qqq_quote, vix_quote)
+    new_alerts = build_circuit_alerts(findings, day=now.astimezone(NY_TZ).date())
+
+    # 去重：已有 key 的预警不重复追加
+    alerts = list(payload.alerts or [])
+    existing_keys = {alert.get("key") for alert in alerts}
+    for alert in new_alerts:
+        dumped = alert.model_dump()
+        if dumped["key"] not in existing_keys:
+            alerts.append(dumped)
+            existing_keys.add(dumped["key"])
+
+    watch = IntradayWatch(
+        checked_at=now.astimezone(UTC),
+        qqq_price=qqq_quote.price if qqq_quote else None,
+        qqq_change_pct=_quote_change_pct(qqq_quote),
+        vix=vix_quote.price if vix_quote else None,
+        vix_change_pct=_quote_change_pct(vix_quote),
+        triggered=bool(findings),
+    )
+
+    # 只更新 alerts 与 intraday_watch，其余字段（含 decision/market/snapshot_kind/generated_at）保持原样
+    updated = payload.model_copy(update={"alerts": alerts, "intraday_watch": watch})
+    repository.save_payload(updated)
+    write_dashboard_json(updated, export_path)
+    return updated
+
+
+def _quote_change_pct(quote: Quote | None) -> float | None:
+    """相对昨收的变化百分比；报价或昨收无效时返回 None。"""
+    if quote is None or not quote.previous_close:
+        return None
+    return (quote.price - quote.previous_close) / quote.previous_close * 100
+
+
 def create_refresh_scheduler(
     repository: SnapshotRepository, export_path: Path
 ) -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone="America/New_York")
+    # 日频全量刷新：工作日收盘后 16:35 产出正式信号
     scheduler.add_job(
         refresh_once,
+        trigger=CronTrigger(day_of_week="mon-fri", hour=16, minute=35),
+        args=[repository, export_path],
+        id="daily_refresh",
+        replace_existing=True,
+    )
+    # 盘中轻量守护：每 15 分钟只追加熔断提醒，不重算正式决策
+    scheduler.add_job(
+        run_intraday_guard,
         trigger="interval",
         minutes=15,
         args=[repository, export_path],
-        id="dashboard_refresh",
+        id="intraday_guard",
         replace_existing=True,
     )
     scheduler.start()

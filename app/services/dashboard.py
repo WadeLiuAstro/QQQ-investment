@@ -1,6 +1,13 @@
 from datetime import datetime
 
-from app.models import DashboardPayload, Decision, MacroEvent, SourceStatus
+from app.models import (
+    DashboardPayload,
+    Decision,
+    MacroEvent,
+    MonitoringPayload,
+    NewsBoard,
+    SourceStatus,
+)
 
 
 def build_dashboard_payload(
@@ -13,11 +20,14 @@ def build_dashboard_payload(
     backtest: dict[str, object] | None = None,
     action_card: dict[str, object] | None = None,
     previous: DashboardPayload | None = None,
+    monitoring: MonitoringPayload | None = None,
+    news: NewsBoard | None = None,
 ) -> DashboardPayload:
     resolved_market = market
     resolved_events = events
     resolved_backtest = backtest
     resolved_action_card = action_card
+    resolved_monitoring = monitoring
     resolved_sources = dict(sources)
     if previous is not None:
         if resolved_market is None:
@@ -31,6 +41,8 @@ def build_dashboard_payload(
             resolved_backtest = previous.backtest
         if resolved_action_card is None:
             resolved_action_card = previous.action_card
+        if resolved_monitoring is None:
+            resolved_monitoring = previous.monitoring
     return DashboardPayload(
         generated_at=generated_at,
         sources=resolved_sources,
@@ -39,6 +51,8 @@ def build_dashboard_payload(
         events=resolved_events or [],
         backtest=resolved_backtest,
         action_card=resolved_action_card,
+        monitoring=resolved_monitoring,
+        news=news,
     )
 
 

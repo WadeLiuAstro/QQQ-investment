@@ -19,6 +19,9 @@
 - 市场宽度佐证（`app/services/breadth.py`）：P2 佐证层第一个指标，QQQE vs QQQ 相对强弱四态标签（集中度偏高/等权同步走强/宽度与指数同步/回调期宽度观察），RS 阈值 ±1 个百分点写入测试；只作展示绝不进入决策，调整标签语义须用户授权。
 - 体系参考层（S1，`app/services/trend.py` + `app/services/structural.py`）：`market.qqq.trend` 为 MA200 趋势状态机（多头=收盘价≥MA200 收复即算；空头=连续 3 日低于且偏离≥1%；前轮空头未收复时保持；单月回撤≥8% 触发熔断），`market.qqq.structural_risk` 为四维结构评分（深度 30/速度 20/宽度 25/波动率 25，档位 <40 normal、40–69 watch 加仓减半、≥70 critical 冻结加仓）。二者均为参考层，不改变五档正式决策；规则语义来自 `docs/investment-system.md`，调整须用户授权。
 - 归因拍板机制（S2，`app/services/attribution.py` + API）：大跌触发（单日 ≤ -2% 或回撤跨新 5% 档）后机器举证、人拍板三分类（流动性恐慌→放行/结构性→冻结/待观察→减半+48h 复核），超时未拍板=减半执行；闸门写入 `market.qqq.attribution`，拍板落 SQLite `attribution_decisions`，`decision_log` 记录 signal/attribution/execution；**架构决策（用户拍板）**：GitHub Pages 无写能力，采用本地服务器写库为主 + 前端"导出 JSON 手动提交"降级（C 方案）。
+- 刷新架构双模式（S3，体系 §8 日频决策节奏）：正式信号一律基于日频收盘价——日频全量刷新（工作日美东 16:35 cron）产出正式快照（`snapshot_kind:"daily"`）；盘中 15 分钟轻量守护（`app/services/intraday_guard.py`）只检测熔断级事件（QQQ 单日 ≤ -3%；VIX 单日 ≥ +20% 或绝对值 ≥ 35，阈值测试锁定）并按 `circuit_breaker:{日期}:{类型}` key 去重追加提醒、写 `intraday_watch`，**绝不重算** decision/指标/回测/monitoring，也不写状态历史；盘中数据永不产生正式信号。`scripts/refresh_dashboard.py --mode auto|daily|guard`（auto = 盘中守护/盘后全量），GitHub Actions 用 auto；手动 `/api/refresh` 仍为全量（开发工具）。调整熔断阈值属产品语义变更，须用户授权。
+- 消息面展示卡片（独立卡片，纯展示）：用户拍板的需求钉死项——混合数据源（现有宏观日历打底 + CNBC RSS 增强，失败降级纯日历）；英文标题原样 + 中文来源名（CNBC 宏观/CNBC 头条）+ 原文链接；只列头条不做利多/利空判定；随日频刷新一天一次；最近 3 天最多 12 条；**永不耦合五档决策/仓位/倍率/闸门**；未来可与大涨/大跌归因联动，联动方式另行讨论。二期升级（用户 grilling 拍板）：预期事件区升级为当月网格月历（事件窗口 45 天、UPCOMING_LIMIT=10、事件日打点点按看详情、跨月标"+N 下月事件"、监控区另行 7 天预过滤保持"临近"语义）；页面顶部信号带下方新增头条摘要栏（淡入淡出轮换 8 秒/条、悬停暂停、prefers-reduced-motion 静态降级、常驻"日频更新"标注不暗示实时、点击跳消息面卡）——用户明确拒绝横向滚动跑马灯（实时性错觉/难扫读/无决策价值）。旧事件卡 .news-event/.ne-* CSS 为无害死代码待清理。
+- 监控指标增强区（monitoring，佐证层）：用户持久偏好——只复用现有资产与数据源（不新增 symbol/外部源/JS 包），统一"最新值+1日变化+5日方向+20日趋势"口径，四固定分组（情绪波动/趋势宽度/板块轮动/宏观防御），CNN 七因子与历史为可选增量；**绝不与五档决策、仓位、定投倍率耦合**，只做事实陈述不含买卖建议。CNN 情绪指数用 SVG 仪表盘三层结构（仪表盘 gauge + 综合判断横幅 + 4 张历史对比卡），情绪标签按 F&G 五档阈值（后端数据逻辑 `_cnn_status`），历史对比日期按观测日自动回算不写死；监控区资产行带列表头，全局滚动条统一深色细条与主题一致。情绪子区在对比卡与七因子之间含"近一年市场情绪走势"图（复用 Lightweight Charts，不新增 JS 包；后端 `_recent_history` 只保留近 366 天并升序；分档线 25/45/55/75 与 FG_BANDS/`_cnn_status` 同源，一致性由静态测试锁定；历史缺失显示"暂无历史走势数据"不伪造）；gauge 中心数值在表盘下方正常流布局（用户批注修复：绝对定位会与指针重叠）。
 
 ## 已知数据源状态
 
@@ -27,8 +30,15 @@
 - Yahoo Finance 抓取可能短暂失败；`^IXIC` 采用独立快照降级，页面不能将过期数据当成实时数据。
 - 已复现：Yahoo 日线端点在盘后时段可能返回最后一根 bar 的 Close 为 NaN（Open/Volume 正常），会污染 MA200、回撤、决策并使 K 线图报错；提供方层已过滤非有限收盘价/成交量行，改动此处时必须保留该过滤。
 - 时效性约定：所有市场卡带 `stale_lag`（基准=最近已收盘交易日，由 `expected_bar_date` 判定，16:00 后当天算已收盘）；滞后 ≥1 交易日页面显式标注。注意：Yahoo NaN 过滤会让数据停留在上一交易日（表现为滞后 1 个交易日），属数据源暂时现象，标注随数据恢复自动消失，不要为此伪造收盘价。
+- 已复现：Yahoo 高频抓取会触发限流（`yfinance.exceptions.YFRateLimitError`，继承自 Exception 而非 RuntimeError）；S3 验收时旧代码 15 分钟全量刷新叠加手动刷新导致整组 429，且未捕获异常会使整个刷新崩溃。已在 `yahoo.py` 的 RETRYABLE 与两个抓取函数的 except 中加入该异常（降级为不可用）；验证真实快照时避免短时间重复刷新，限流后需等待数分钟冷却。
+- 已复现：BLS 排期页（bls.gov/schedule/news_release/）自 2026-08-06 起被反爬全面封锁（携浏览器头仍 403，与 CNN 不同，加头无效），CPI/非农排期暂不可用；BLS 官方 API（api.bls.gov，免 key）可访问但只提供历史序列不提供未来发布排期，无法直接替代日历。`load_macro_events` 已改为部分降级：FOMC 与 BLS 独立抓取，谁成功用谁，部分失败时 available=True 且 message 注明失败源。
+- 已复现：Fed FOMC 日历页已改版——年份在 `<h4><a id="数字">YYYY FOMC Meetings</a></h4>` 分段标题，月份在带 `fomc-meeting__month` 类名的 `<strong>` 块，日期在其后独立的 `fomc-meeting__date` 块（形如 15-16*）；旧正则（假设月日年同块）已完全失配静默返回 0，曾被 BLS 事件掩盖。解析已适配新结构：按年份标题切段防跨年误配，月份锚定类名防干扰，会议日期取范围结束日（决议公布日）；Fed 再改版时解析静默降级为空列表（安全但无告警）。事件抓取窗口当前为 7 天，alerts/归因各自按 3 天窗口独立过滤，不受窗口扩大影响。
+- CNBC RSS 双源已验证（2026-08-06 实测 200）：宏观 Economy（id=20910258）与 US Top News（id=100003114），标准 RSS 2.0、无反爬拦截（仍携带头防御）；Yahoo Finance RSS 已 404 不可用。RSS 无 `news` 回退机制：日频刷新时 RSS 全挂则当次快照无头条（不沿用旧数据），属预期降级行为。
 - S1 实现经验：结构评分需要 252 根 52 周窗口，QQQ/QQQE 必须取 2y 周期（1y 约 250 根不足）；已按此调整 scheduler。真实快照曾出现 speed_score=20 而 depth_score=0（回撤仅 -5%），符合体系口径（速度维度独立计分）但视觉上偏大，若用户后续认为不合理需走体系修订流程。
 - S2 实现经验：回撤档位判定用 `ceil(dd/5)` 并先 round 到两位小数，否则浮点误差会把 -10.0% 抬到 -1 档造成误触发；evidence.day 经 JSON 序列化后是字符串，`attach_attribution_gate` 需 `date.fromisoformat` 还原。
+- monitoring 实现经验：CNN 端点真实返回七因子与约 251 点历史（可选字段），解析时对 `[ts,score]` 与 `{x,y}` 两种历史形状容错；monitoring 构建放在正式决策之后，单组失败用 try 隔离只降级该组；`mark_monitoring_stale` 保留原 `as_of` 不伪造新数据。
+- 情绪仪表盘实现经验：`comparisons` 从 dict 改结构化 list 时需 `field_validator` 兼容旧快照；五档阈值 `_cnn_status` 与前端 FG_BANDS 色带区间须一致（有测试锁定）；历史对比日期用 `observed_at - timedelta(days=1/7/30/365)` 回算。
+- 情绪走势图实现经验：手风琴分组每次展开都重建 detail DOM，Lightweight Charts 实例必须先 `remove()` 再重建避免泄漏；Y 轴固定 0–100 用 `autoscaleInfoProvider` 返回固定 priceRange；折线 time 用 `observed_at.slice(0,10)` 业务日格式；悬停读数以读出行（非 tooltip）呈现，移动端点按同样生效，不依赖悬停。
 - 数据准确性约定：估算语义按美东交易时段判断（盘中估算/收盘正式）；盘中成交量按已交易时段占比外推并显式标注"盘中估算"；Yahoo 抓取失败先重试 1 次再降级。已知遗留问题：Yahoo 未复权收盘价在除息日会产生人为跳空，轻微影响 RSI/回撤；复权价改造需先回测对比并另行确认后再做。
 
 ### 降级原则

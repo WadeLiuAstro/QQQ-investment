@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class StateRule(BaseModel):
@@ -112,6 +112,134 @@ class AttributionRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
+MonitoringTone = Literal["positive", "negative", "warning", "neutral", "unavailable"]
+MonitoringDataStatus = Literal["available", "partial", "unavailable"]
+
+
+class MonitoringPoint(BaseModel):
+    observed_at: datetime
+    value: float
+
+
+class MonitoringFactor(BaseModel):
+    key: str
+    label: str
+    score: float
+    rating: str | None = None
+    change: float | None = None
+    tone: MonitoringTone = "neutral"
+
+
+class MonitoringComparison(BaseModel):
+    label: str
+    value: float | None = None
+    status: str | None = None
+    as_of: date | None = None
+
+
+class MonitoringDetails(BaseModel):
+    comparisons: list[MonitoringComparison] = Field(default_factory=list)
+    history: list[MonitoringPoint] = Field(default_factory=list)
+    factors: list[MonitoringFactor] = Field(default_factory=list)
+    gauge_value: float | None = None
+    gauge_label: str | None = None
+    term_ratio: float | None = None
+    term_status: str | None = None
+    events: list[MacroEvent] = Field(default_factory=list)
+
+    @field_validator("comparisons", mode="before")
+    @classmethod
+    def _coerce_legacy_comparisons(cls, value: object) -> object:
+        # 旧快照中 comparisons 为 dict，新格式为结构化 list；旧格式丢弃以避免反序列化崩溃
+        if isinstance(value, dict):
+            return []
+        return value
+
+
+class MonitoringMetric(BaseModel):
+    key: str
+    label: str
+    current: float | None = None
+    unit: str | None = None
+    change_1d: float | None = None
+    change_unit: str | None = None
+    direction_5d: str | None = None
+    momentum_20d: float | None = None
+    momentum_unit: str | None = None
+    as_of: date | None = None
+    tone: MonitoringTone = "neutral"
+    display_status: str = "数据正常"
+    data_status: MonitoringDataStatus = "available"
+    available: bool = True
+    stale: bool = False
+    note: str | None = None
+
+
+class MonitoringSummary(BaseModel):
+    key: str
+    label: str
+    display_value: str
+    status: str
+    tone: MonitoringTone
+    data_status: MonitoringDataStatus = "available"
+    available: bool = True
+    stale: bool = False
+    as_of: date | None = None
+
+
+class MonitoringGroup(BaseModel):
+    key: str
+    label: str
+    status: str
+    data_status: MonitoringDataStatus = "available"
+    available: bool = True
+    stale: bool = False
+    metrics: list[MonitoringMetric] = Field(default_factory=list)
+    details: MonitoringDetails = Field(default_factory=MonitoringDetails)
+
+
+class MonitoringPayload(BaseModel):
+    generated_at: datetime
+    summary: list[MonitoringSummary]
+    groups: dict[str, MonitoringGroup]
+
+
+class IntradayWatch(BaseModel):
+    checked_at: datetime
+    qqq_price: float | None = None
+    qqq_change_pct: float | None = None
+    vix: float | None = None
+    vix_change_pct: float | None = None
+    triggered: bool
+
+
+class NewsHeadline(BaseModel):
+    """消息面卡片中的一条头条。"""
+
+    title: str
+    url: str
+    source: str
+    published_at: datetime
+
+
+class NewsUpcoming(BaseModel):
+    """消息面卡片中的一条预期事件。"""
+
+    kind: str
+    title: str
+    event_at: datetime
+    days_until: int
+
+
+class NewsBoard(BaseModel):
+    """消息面卡片整体结构：预期事件 + 头条混排，支持降级。"""
+
+    available: bool
+    news_source_available: bool
+    upcoming: list[NewsUpcoming] = Field(default_factory=list)
+    headlines: list[NewsHeadline] = Field(default_factory=list)
+
+
 class DashboardPayload(BaseModel):
     generated_at: datetime
     sources: dict[str, SourceStatus]
@@ -122,4 +250,8 @@ class DashboardPayload(BaseModel):
     action_card: dict[str, object] | None = None
     state_history: dict[str, object] | None = None
     alerts: list[dict[str, object]] | None = None
+    monitoring: MonitoringPayload | None = None
+    snapshot_kind: str = "daily"
+    intraday_watch: IntradayWatch | None = None
+    news: NewsBoard | None = None
 
