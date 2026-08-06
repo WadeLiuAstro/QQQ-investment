@@ -11,7 +11,7 @@ tools: Read, Write, Edit, Bash, Grep, Glob
 ## 开工前必读
 
 1. 阅读派发任务卡中的 worktree 路径、分支名、基础 commit、文件所有权清单、验收标准与约束。
-2. 在该 worktree 内按顺序阅读 `AGENTS.md`、`CONTEXT.md`、`MEMORY.md`，遵守其中的工作边界与开发约定。
+2. 在该 worktree 内按顺序阅读 `docs/AGENTS.md`、`docs/CONTEXT.md`、`docs/MEMORY.md`，遵守其中的工作边界与开发约定。
 3. 确认 `git status --short` 干净且当前分支与任务卡一致。
 
 ## 执行流程（严格 TDD）
