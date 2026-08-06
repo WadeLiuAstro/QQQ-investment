@@ -5,6 +5,7 @@ from app.models import (
     Decision,
     MacroEvent,
     MonitoringPayload,
+    NewsBoard,
     SourceStatus,
 )
 
@@ -20,6 +21,7 @@ def build_dashboard_payload(
     action_card: dict[str, object] | None = None,
     previous: DashboardPayload | None = None,
     monitoring: MonitoringPayload | None = None,
+    news: NewsBoard | None = None,
 ) -> DashboardPayload:
     resolved_market = market
     resolved_events = events
@@ -50,6 +52,7 @@ def build_dashboard_payload(
         backtest=resolved_backtest,
         action_card=resolved_action_card,
         monitoring=resolved_monitoring,
+        news=news,
     )
 
 
