@@ -71,8 +71,8 @@ def test_news_calendar_contract() -> None:
     assert "点按事件日查看详情" in script
     assert "news-cal-readout" in script
     assert "aria-label" in script
-    # 周一起始表头
-    assert "一 二 三 四 五 六 日" in script
+    # 周一起始表头：拆成 7 个 span，与下方 7 列日历逐列对齐
+    assert '<div class="nc-head"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>' in script
 
 
 def test_news_card_no_longer_renders_event_cards() -> None:
@@ -88,6 +88,42 @@ def test_news_card_no_longer_renders_event_cards() -> None:
 def test_news_calendar_styles() -> None:
     css = CSS.read_text(encoding="utf-8")
     for cls in (".news-calendar", ".nc-day.near", ".nc-day.has-event", ".nc-day:focus-visible", ".nc-next-month", "#news-cal-readout"):
+        assert cls in css, f"style.css 缺少 {cls}"
+    # 全局 button 悬浮规则（right/bottom 定位）不得泄漏到日历事件按钮
+    assert ".nc-day{position:relative;right:auto;bottom:auto" in css
+
+
+def test_news_calendar_day_tooltip_contract() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    # 事件日同时带原生 title 与 data-titles（悬停浮层数据源）
+    assert 'title="${ds} ${titles}"' in script
+    assert 'data-titles="${titles}"' in script
+    css = CSS.read_text(encoding="utf-8")
+    # 悬停浮层仅在真实悬停设备生效，移动端不受影响
+    assert "@media(hover:hover)" in css
+    assert ".nc-day.has-event::after" in css
+    assert "attr(data-titles)" in css
+
+
+def test_event_list_summary_contract() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    # 未来七日事件卡改为摘要式：中文标题、北京时间含星期、来源、静态背景说明
+    for token in (
+        "function renderEventList",
+        "renderEventList(p.events)",
+        "非农就业报告",
+        "CPI 通胀数据",
+        "FOMC 利率决议",
+        "美国劳工统计局",
+        "美联储",
+        "北京时间",
+        "eventKindContext",
+    ):
+        assert token in script, f"app.js 缺少 {token}"
+    # 北京时间显式按 UTC+8 换算，不依赖访客本地时区
+    assert "8*3600000" in script
+    css = CSS.read_text(encoding="utf-8")
+    for cls in (".event-item", ".event-title", ".event-time", ".event-src", ".event-context"):
         assert cls in css, f"style.css 缺少 {cls}"
 
 
